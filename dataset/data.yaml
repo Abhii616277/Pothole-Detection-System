@@ -1,0 +1,7 @@
+path: /home/claude/pothole-project/dataset
+train: images/train
+val: images/valid
+test: images/test
+
+nc: 1
+names: ['pothole']
