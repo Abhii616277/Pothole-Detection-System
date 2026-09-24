@@ -7,7 +7,7 @@ Endpoints:
   GET  /health                  → service + model + DB status
   POST /auth/login              → authenticate user
   POST /auth/signup             → register new citizen user
-  POST /auth/google             → authenticate via Google Identity / OAuth
+  POST /auth/google             → reserved until Google ID token verification is configured
   POST /predict                 → detect potholes, return JSON with severity & dimensions
   POST /predict/annotated       → detect + return annotated JPEG stream
   POST /reports                 → submit citizen report (image + metadata + GPS)
@@ -32,6 +32,8 @@ from typing import List, Optional
 
 import cv2
 import numpy as np
+from argon2 import PasswordHasher
+from argon2.exceptions import VerificationError
 from fastapi import Depends, FastAPI, File, HTTPException, Query, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
@@ -68,8 +70,8 @@ app = FastAPI(
         "Detects, grades, maps, and tracks road hazards using YOLOv8."
     ),
     version="2.5.0",
-    docs_url="/api/docs",
-    redoc_url="/api/redoc",
+    docs_url="/docs",
+    redoc_url="/redoc",
 )
 
 app.add_middleware(
@@ -87,6 +89,7 @@ app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 # Model Management
 # ---------------------------------------------------------------------------
 _model: YOLO | None = None
+_password_hasher = PasswordHasher()
 
 
 def get_model() -> YOLO:
@@ -164,13 +167,6 @@ class SignupRequest(BaseModel):
     password: str
 
 
-class GoogleAuthRequest(BaseModel):
-    credential: Optional[str] = None
-    email: Optional[str] = None
-    name: Optional[str] = None
-    avatar_url: Optional[str] = None
-
-
 class ReportUpdateRequest(BaseModel):
     status: Optional[str] = None   # Open | In Review | Resolved
     notes: Optional[str] = None
@@ -211,41 +207,38 @@ def health():
 # ---------------------------------------------------------------------------
 @app.post("/auth/login", tags=["Auth"])
 def login(req: LoginRequest, db: Session = Depends(get_db)):
-    user = db.query(User).filter(User.email == req.email.lower().strip()).first()
-    if not user:
-        # Auto-create for demo convenience if user doesn't exist
-        user = User(
-            name=req.email.split("@")[0].capitalize(),
-            email=req.email.lower().strip(),
-            provider="local",
-            role="Citizen",
-        )
-        db.add(user)
-        db.commit()
-        db.refresh(user)
+    email = req.email.lower().strip()
+    user = db.query(User).filter(User.email == email).first()
+    if not user or not user.password_hash:
+        raise HTTPException(status_code=401, detail="Invalid email or password.")
+    try:
+        _password_hasher.verify(user.password_hash, req.password)
+    except VerificationError:
+        raise HTTPException(status_code=401, detail="Invalid email or password.")
 
     return {
         "status": "success",
         "message": "Logged in successfully",
         "user": user.to_dict(),
-        "token": f"rg_token_{user.id}_{int(time.time())}",
     }
 
 
 @app.post("/auth/signup", tags=["Auth"])
 def signup(req: SignupRequest, db: Session = Depends(get_db)):
-    existing = db.query(User).filter(User.email == req.email.lower().strip()).first()
+    name = req.name.strip()
+    email = req.email.lower().strip()
+    if not name:
+        raise HTTPException(status_code=422, detail="Name is required.")
+    if len(req.password) < 8:
+        raise HTTPException(status_code=422, detail="Password must be at least 8 characters.")
+    existing = db.query(User).filter(User.email == email).first()
     if existing:
-        return {
-            "status": "success",
-            "message": "Welcome back! Account already exists.",
-            "user": existing.to_dict(),
-            "token": f"rg_token_{existing.id}_{int(time.time())}",
-        }
+        raise HTTPException(status_code=409, detail="An account with this email already exists.")
 
     user = User(
-        name=req.name.strip(),
-        email=req.email.lower().strip(),
+        name=name,
+        email=email,
+        password_hash=_password_hasher.hash(req.password),
         provider="local",
         role="Citizen",
     )
@@ -257,44 +250,12 @@ def signup(req: SignupRequest, db: Session = Depends(get_db)):
         "status": "success",
         "message": "Account created successfully",
         "user": user.to_dict(),
-        "token": f"rg_token_{user.id}_{int(time.time())}",
     }
 
 
 @app.post("/auth/google", tags=["Auth"])
-def google_auth(req: GoogleAuthRequest, db: Session = Depends(get_db)):
-    """
-    Handles Google OAuth sign in / sign up.
-    Accepts credential token or parsed profile attributes.
-    """
-    email = (req.email or "abhinav.raj@gmail.com").lower().strip()
-    name = req.name or "Abhinav Raj"
-    avatar = req.avatar_url or "https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=120&q=80"
-
-    user = db.query(User).filter(User.email == email).first()
-    if not user:
-        user = User(
-            name=name,
-            email=email,
-            avatar_url=avatar,
-            provider="google",
-            role="Citizen",
-        )
-        db.add(user)
-        db.commit()
-        db.refresh(user)
-    else:
-        if not user.avatar_url and avatar:
-            user.avatar_url = avatar
-            db.commit()
-            db.refresh(user)
-
-    return {
-        "status": "success",
-        "message": "Authenticated with Google",
-        "user": user.to_dict(),
-        "token": f"rg_google_{user.id}_{int(time.time())}",
-    }
+def google_auth():
+    raise HTTPException(status_code=501, detail="Google sign-in has not been configured.")
 
 
 # ---------------------------------------------------------------------------
@@ -334,7 +295,7 @@ async def predict(file: UploadFile = File(...)):
             "image_dims": {"width": w, "height": h},
             "pothole_count": len(severity_result.detections),
             "overall_severity": severity_result.overall_severity,
-            "confidence": round(top_conf * 100, 1) if top_conf > 0 else 87.0,
+            "confidence": round(top_conf * 100, 1),
             "estimated_size": estimated_size,
             "priority_score": severity_result.priority_score,
             "detections": [d.to_dict() for d in severity_result.detections],
@@ -395,8 +356,8 @@ async def submit_report(
         estimated_size = f"~ {est_width} m (width)"
         top_conf = max_det.confidence
     else:
-        estimated_size = "~ 0.5 m"
-        top_conf = 0.85
+        estimated_size = "~ 0.0 m"
+        top_conf = 0.0
 
     annotated_url = save_annotated(annotated, prefix="report")
 
@@ -407,9 +368,9 @@ async def submit_report(
     report = PotholeReport(
         reporter_name=reporter_name or "Citizen Reporter",
         reporter_email=reporter_email,
-        location_description=location_description or "Bengaluru, Karnataka",
-        latitude=latitude or 12.9716,
-        longitude=longitude or 77.5946,
+        location_description=location_description,
+        latitude=latitude,
+        longitude=longitude,
         image_filename=orig_name,
         annotated_image_url=annotated_url,
         pothole_count=len(severity_result.detections),

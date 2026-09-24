@@ -125,6 +125,10 @@ uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 
 Then open **http://localhost:8000** in your browser.
 
+## API and service setup
+
+See [API_SETUP.md](API_SETUP.md) for local startup steps, third-party services used by the frontend, credentials to obtain, and authentication work required before production deployment. The Google sign-in UI and municipal dispatch integration are not connected yet.
+
 ---
 
 ## API Reference
