@@ -1,0 +1,1926 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>RoadGuard — AI-Powered Pothole Detection & Reporting Platform</title>
+  
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  
+  <!-- Leaflet CSS & JS for Dark Live Map -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+  <!-- Google Identity Services (GIS) for Google Auth -->
+  <script src="https://accounts.google.com/gsi/client" async defer></script>
+
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=Caveat:wght@600;700&display=swap');
+
+    :root {
+      --bg-dark: #0b1118;
+      --card-dark: #111a24;
+      --card-border: rgba(255, 255, 255, 0.07);
+      --cyan-primary: #00e5b0;
+      --cyan-hover: #00c799;
+      --cyan-glow: rgba(0, 229, 176, 0.25);
+      --orange-primary: #f97316;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      background-color: var(--bg-dark);
+      font-family: 'Plus Jakarta Sans', sans-serif;
+      color: #e2e8f0;
+      min-height: 100vh;
+      overflow-x: hidden;
+    }
+
+    .font-handwritten {
+      font-family: 'Caveat', cursive;
+    }
+
+    /* Glassmorphism & Cards */
+    .rg-card {
+      background: #111a24;
+      border: 1px solid var(--card-border);
+      border-radius: 1rem;
+      transition: border-color 0.25s ease, box-shadow 0.25s ease;
+    }
+    .rg-card:hover {
+      border-color: rgba(255, 255, 255, 0.12);
+    }
+
+    .rg-card-interactive:hover {
+      border-color: rgba(0, 229, 176, 0.35);
+      box-shadow: 0 8px 30px rgba(0, 0, 0, 0.4);
+    }
+
+    /* Sidebar Navigation */
+    .nav-item {
+      display: flex;
+      align-items: center;
+      gap: 0.875rem;
+      padding: 0.75rem 1rem;
+      border-radius: 0.75rem;
+      color: #8fa0b5;
+      font-weight: 500;
+      font-size: 0.88rem;
+      transition: all 0.2s ease;
+      cursor: pointer;
+    }
+    .nav-item:hover {
+      color: #ffffff;
+      background: rgba(255, 255, 255, 0.04);
+    }
+    .nav-item.active {
+      background: rgba(0, 229, 176, 0.12);
+      color: var(--cyan-primary);
+      font-weight: 600;
+      border-left: 3px solid var(--cyan-primary);
+    }
+
+    /* Buttons */
+    .btn-cyan {
+      background: linear-gradient(135deg, #00e5b0 0%, #00bfa5 100%);
+      color: #05141b;
+      font-weight: 700;
+      border-radius: 0.75rem;
+      transition: all 0.25s ease;
+      box-shadow: 0 4px 15px rgba(0, 229, 176, 0.3);
+    }
+    .btn-cyan:hover {
+      background: linear-gradient(135deg, #26ecc0 0%, #00d4b8 100%);
+      box-shadow: 0 6px 22px rgba(0, 229, 176, 0.45);
+      transform: translateY(-1px);
+    }
+
+    .btn-orange {
+      background: linear-gradient(135deg, #f97316 0%, #ea580c 100%);
+      color: #ffffff;
+      font-weight: 700;
+      border-radius: 0.75rem;
+      transition: all 0.25s ease;
+      box-shadow: 0 4px 15px rgba(249, 115, 22, 0.3);
+    }
+    .btn-orange:hover {
+      background: linear-gradient(135deg, #fb923c 0%, #f97316 100%);
+      box-shadow: 0 6px 20px rgba(249, 115, 22, 0.45);
+      transform: translateY(-1px);
+    }
+
+    .btn-dark-outline {
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      color: #e2e8f0;
+      font-weight: 600;
+      border-radius: 0.75rem;
+      transition: all 0.2s ease;
+    }
+    .btn-dark-outline:hover {
+      background: rgba(255, 255, 255, 0.1);
+      border-color: rgba(255, 255, 255, 0.3);
+    }
+
+    /* Badges */
+    .badge-sev-high {
+      background: rgba(239, 68, 68, 0.18);
+      color: #f87171;
+      border: 1px solid rgba(239, 68, 68, 0.3);
+    }
+    .badge-sev-medium {
+      background: rgba(245, 158, 11, 0.18);
+      color: #fbbf24;
+      border: 1px solid rgba(245, 158, 11, 0.3);
+    }
+    .badge-sev-low {
+      background: rgba(34, 197, 94, 0.18);
+      color: #4ade80;
+      border: 1px solid rgba(34, 197, 94, 0.3);
+    }
+    .badge-sev-critical {
+      background: rgba(168, 85, 247, 0.18);
+      color: #c084fc;
+      border: 1px solid rgba(168, 85, 247, 0.3);
+    }
+
+    /* Dropzone */
+    .upload-dropzone {
+      border: 2px dashed rgba(0, 229, 176, 0.35);
+      border-radius: 0.875rem;
+      transition: all 0.25s ease;
+      background: rgba(0, 229, 176, 0.02);
+    }
+    .upload-dropzone:hover, .upload-dropzone.drag-active {
+      border-color: var(--cyan-primary);
+      background: rgba(0, 229, 176, 0.06);
+    }
+
+    /* Custom Leaflet Map styling */
+    #liveMap, #fullMapView {
+      border-radius: 0.875rem;
+      background: #0d151e;
+      z-index: 10;
+    }
+    .leaflet-popup-content-wrapper {
+      background: #111a24 !important;
+      color: #e2e8f0 !important;
+      border: 1px solid rgba(255,255,255,0.15) !important;
+      border-radius: 0.75rem !important;
+      box-shadow: 0 10px 25px rgba(0,0,0,0.6) !important;
+    }
+    .leaflet-popup-tip {
+      background: #111a24 !important;
+    }
+
+    /* Modal overlay */
+    .modal-backdrop {
+      background: rgba(5, 10, 16, 0.85);
+      backdrop-filter: blur(8px);
+    }
+
+    /* Scrollbars */
+    ::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+    ::-webkit-scrollbar-track {
+      background: #0b1118;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: rgba(255, 255, 255, 0.12);
+      border-radius: 3px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: rgba(0, 229, 176, 0.4);
+    }
+  </style>
+</head>
+<body class="antialiased selection:bg-teal-500 selection:text-black">
+
+<!-- ======================================================== -->
+<!-- 1. INITIAL ENTER / WELCOME SCREEN (HERO LANDING)         -->
+<!-- ======================================================== -->
+<div id="welcomeScreen" class="fixed inset-0 z-50 flex flex-col justify-between p-6 md:p-12 transition-all duration-700 bg-cover bg-center"
+     style="background-image: radial-gradient(circle at 50% 30%, rgba(0, 229, 176, 0.12) 0%, transparent 60%), linear-gradient(180deg, #070c12 0%, #0b121a 100%);">
+  
+  <!-- Top bar of Welcome screen -->
+  <div class="flex items-center justify-between max-w-6xl mx-auto w-full">
+    <div class="flex items-center gap-3">
+      <div class="w-10 h-10 rounded-xl flex items-center justify-center bg-gradient-to-tr from-teal-400 to-emerald-500 shadow-lg shadow-teal-500/20">
+        <svg class="w-6 h-6 text-slate-950" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M13 3L4 14h7l-2 7 9-11h-7l2-7z"/>
+        </svg>
+      </div>
+      <div>
+        <h1 class="text-xl font-extrabold tracking-tight text-white flex items-center gap-1.5">
+          RoadGuard
+        </h1>
+        <p class="text-xs text-teal-400 font-semibold tracking-wider uppercase">See It. Report It. Fix It.</p>
+      </div>
+    </div>
+    
+    <button onclick="openAuthModal()" class="px-5 py-2.5 rounded-xl text-sm font-semibold text-white bg-white/5 border border-white/10 hover:bg-white/10 transition-all flex items-center gap-2">
+      <svg class="w-4 h-4 text-teal-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"/></svg>
+      <span>Sign In / Register</span>
+    </button>
+  </div>
+
+  <!-- Hero Centerpiece -->
+  <div class="max-w-4xl mx-auto w-full text-center space-y-8 my-auto">
+    <div class="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-teal-500/10 border border-teal-500/30 text-teal-300 text-xs font-bold uppercase tracking-widest shadow-inner">
+      <span class="w-2 h-2 rounded-full bg-teal-400 animate-ping"></span>
+      Next-Gen Civic AI Infrastructure
+    </div>
+
+    <h2 class="text-4xl md:text-6xl font-black text-white tracking-tight leading-tight">
+      Smarter Roads.<br/>
+      <span class="bg-gradient-to-r from-teal-300 via-emerald-400 to-teal-500 bg-clip-text text-transparent">
+        Safer Commutes For Everyone.
+      </span>
+    </h2>
+
+    <p class="text-slate-400 text-base md:text-lg max-w-2xl mx-auto font-normal leading-relaxed">
+      Detect road hazards with computer vision, grade pothole severity automatically, and route verified GPS reports directly to municipal repair teams.
+    </p>
+
+    <!-- Key metric pills -->
+    <div class="grid grid-cols-2 md:grid-cols-4 gap-4 max-w-3xl mx-auto pt-2">
+      <div class="p-3.5 rounded-2xl bg-white/[0.03] border border-white/[0.08]">
+        <div class="text-2xl font-black text-white" id="welcomePotholes">0</div>
+        <div class="text-xs text-slate-400 mt-0.5">Potholes Detected</div>
+      </div>
+      <div class="p-3.5 rounded-2xl bg-white/[0.03] border border-white/[0.08]">
+        <div class="text-2xl font-black text-emerald-400" id="welcomeResolved">0</div>
+        <div class="text-xs text-slate-400 mt-0.5">Repairs Resolved</div>
+      </div>
+      <div class="p-3.5 rounded-2xl bg-white/[0.03] border border-white/[0.08]">
+        <div class="text-2xl font-black text-amber-400" id="welcomeUnderReview">0</div>
+        <div class="text-xs text-slate-400 mt-0.5">Under Active Review</div>
+      </div>
+      <div class="p-3.5 rounded-2xl bg-white/[0.03] border border-white/[0.08]">
+        <div class="text-2xl font-black text-teal-400">99.2%</div>
+        <div class="text-xs text-slate-400 mt-0.5">AI Precision</div>
+      </div>
+    </div>
+
+    <!-- Enter Button CTA -->
+    <div class="flex flex-col sm:flex-row items-center justify-center gap-4 pt-4">
+      <button onclick="enterPortal()" class="w-full sm:w-auto px-8 py-4 rounded-xl text-slate-950 font-black text-base btn-cyan flex items-center justify-center gap-3 shadow-xl shadow-teal-500/30 group">
+        <span>Enter RoadGuard Portal</span>
+        <svg class="w-5 h-5 transition-transform group-hover:translate-x-1" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M14 5l7 7m0 0l-7 7m7-7H3"/></svg>
+      </button>
+      <button onclick="enterPortal('detect')" class="w-full sm:w-auto px-6 py-4 rounded-xl font-bold text-sm btn-dark-outline flex items-center justify-center gap-2">
+        <svg class="w-4 h-4 text-teal-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z"/></svg>
+        <span>Instant Pothole Detection</span>
+      </button>
+    </div>
+  </div>
+
+  <!-- Bottom note -->
+  <div class="text-center text-xs text-slate-500 max-w-6xl mx-auto w-full">
+    <span>RoadGuard AI Platform · YOLOv8 Powered · Real-Time Civic Intelligence</span>
+  </div>
+</div>
+
+
+<!-- ======================================================== -->
+<!-- 2. MAIN APPLICATION CONTAINER (SIDEBAR + MAIN DASHBOARD)  -->
+<!-- ======================================================== -->
+<div id="mainApp" class="flex min-h-screen opacity-0 transition-opacity duration-500">
+
+  <!-- ===================== SIDEBAR ===================== -->
+  <aside class="w-64 flex-shrink-0 bg-[#0c141d] border-r border-white/[0.06] flex flex-col justify-between p-5 hidden md:flex sticky top-0 h-screen overflow-y-auto">
+    
+    <!-- Top Branding -->
+    <div class="space-y-7">
+      <div class="flex items-center gap-3 cursor-pointer" onclick="switchNav('dashboard')">
+        <div class="w-9 h-9 rounded-xl flex items-center justify-center bg-gradient-to-tr from-teal-400 to-emerald-500 shadow-md shadow-teal-500/20">
+          <svg class="w-5 h-5 text-slate-950" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M13 3L4 14h7l-2 7 9-11h-7l2-7z"/>
+          </svg>
+        </div>
+        <div>
+          <h2 class="text-lg font-black tracking-tight text-white leading-none">RoadGuard</h2>
+          <p class="text-[10px] text-teal-400/90 font-semibold tracking-wider uppercase mt-1">See It. Report It. Fix It.</p>
+        </div>
+      </div>
+
+      <!-- Navigation items matching the reference image -->
+      <nav class="space-y-1.5" id="sidebarNav">
+        <div class="nav-item active" onclick="switchNav('dashboard')">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"/></svg>
+          <span>Dashboard</span>
+        </div>
+
+        <div class="nav-item" onclick="switchNav('detect')">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z"/></svg>
+          <span>Detect & Report</span>
+        </div>
+
+        <div class="nav-item" onclick="switchNav('map')">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7"/></svg>
+          <span>Map View</span>
+        </div>
+
+        <div class="nav-item" onclick="switchNav('reports')">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+          <span>My Reports</span>
+        </div>
+
+        <div class="nav-item" onclick="switchNav('analytics')">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/></svg>
+          <span>Analytics</span>
+        </div>
+
+        <div class="nav-item" onclick="switchNav('community')">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z"/></svg>
+          <span>Community</span>
+        </div>
+
+        <div class="nav-item" onclick="switchNav('settings')">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
+          <span>Settings</span>
+        </div>
+      </nav>
+    </div>
+
+    <!-- Bottom Sidebar Widget (Scenic Card matching reference image) -->
+    <div class="rounded-2xl overflow-hidden relative border border-white/10 group cursor-pointer shadow-lg"
+         style="background: linear-gradient(180deg, rgba(17,26,36,0.3) 0%, rgba(11,17,24,0.95) 100%), url('https://images.unsplash.com/photo-1506744038136-46273834b3fb?auto=format&fit=crop&w=400&q=80') center/cover;">
+      <div class="h-32 p-4 flex flex-col justify-end">
+        <h4 class="text-xs font-bold text-white leading-tight">Better Roads</h4>
+        <h3 class="text-sm font-extrabold text-teal-400 leading-tight">Brighter Tomorrows</h3>
+        <div class="w-6 h-0.5 bg-teal-400 mt-2 rounded-full"></div>
+      </div>
+    </div>
+  </aside>
+
+
+  <!-- ===================== MAIN CONTENT WRAPPER ===================== -->
+  <div class="flex-1 flex flex-col min-w-0 bg-[#080d14]">
+    
+    <!-- ===================== TOP HEADER ===================== -->
+    <header class="h-16 border-b border-white/[0.06] bg-[#0c141d]/80 backdrop-blur px-6 flex items-center justify-between sticky top-0 z-30">
+      
+      <!-- Mobile sidebar toggle & Universal Search -->
+      <div class="flex items-center gap-4 flex-1 max-w-xl">
+        <button class="md:hidden text-slate-400 hover:text-white" onclick="toggleMobileNav()">
+          <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/></svg>
+        </button>
+
+        <div class="relative w-full">
+          <svg class="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
+          </svg>
+          <input type="text" id="globalSearchInput" placeholder="Search location, reports, or road..." 
+                 class="w-full bg-[#111a24] border border-white/[0.08] rounded-xl pl-10 pr-4 py-2 text-xs md:text-sm text-slate-200 placeholder-slate-500 focus:outline-none focus:border-teal-500 transition-colors"
+                 onkeydown="if(event.key==='Enter') executeSearch()"/>
+        </div>
+      </div>
+
+      <!-- Right Header Actions (Bell Notification & User Profile) -->
+      <div class="flex items-center gap-4">
+        
+        <!-- Notification Bell with red badge matching image -->
+        <div class="relative cursor-pointer" onclick="toggleNotifications()">
+          <div class="w-9 h-9 rounded-xl bg-[#111a24] border border-white/[0.08] flex items-center justify-center text-slate-300 hover:text-white transition-colors">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"/>
+            </svg>
+          </div>
+          <span class="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-red-500 text-white text-[10px] font-bold flex items-center justify-center ring-2 ring-[#0c141d]">1</span>
+        </div>
+
+        <!-- User Profile Pill matching image (AR / Abhinav Raj) -->
+        <div class="relative" id="userMenuWrapper">
+          <div onclick="toggleUserDropdown()" class="flex items-center gap-2.5 p-1.5 pr-3 rounded-xl bg-[#111a24] border border-white/[0.08] hover:border-white/20 transition-all cursor-pointer">
+            <div id="userAvatarContainer" class="w-7 h-7 rounded-lg bg-teal-600 text-white font-bold text-xs flex items-center justify-center shadow-inner overflow-hidden">
+              <span id="userAvatarText">AR</span>
+            </div>
+            <span id="userDisplayName" class="text-xs font-semibold text-slate-200 hidden sm:inline-block">Abhinav Raj</span>
+            <svg class="w-3.5 h-3.5 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+          </div>
+
+          <!-- User dropdown menu -->
+          <div id="userDropdown" class="hidden absolute right-0 mt-2 w-52 rounded-xl bg-[#111a24] border border-white/10 shadow-2xl p-2 z-50 text-xs">
+            <div class="p-2 border-b border-white/5 mb-1">
+              <p class="font-bold text-white" id="dropdownUserName">Abhinav Raj</p>
+              <p class="text-[11px] text-slate-400 truncate" id="dropdownUserEmail">abhinav.raj@example.com</p>
+              <span class="inline-block mt-1 px-2 py-0.5 rounded text-[10px] font-bold bg-teal-500/10 text-teal-400 border border-teal-500/20" id="dropdownUserRole">Citizen Contributor</span>
+            </div>
+            <button onclick="switchNav('reports')" class="w-full text-left p-2 rounded-lg hover:bg-white/5 text-slate-300 hover:text-white flex items-center gap-2">
+              <svg class="w-3.5 h-3.5 text-teal-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+              <span>My Submissions</span>
+            </button>
+            <button onclick="openAuthModal()" class="w-full text-left p-2 rounded-lg hover:bg-white/5 text-slate-300 hover:text-white flex items-center gap-2">
+              <svg class="w-3.5 h-3.5 text-teal-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 16l-4-4m0 0l4-4m-4 4h14m-5 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h7a3 3 0 013 3v1"/></svg>
+              <span>Switch / Sign In</span>
+            </button>
+            <button onclick="signOutUser()" class="w-full text-left p-2 rounded-lg hover:bg-red-500/10 text-red-400 hover:text-red-300 flex items-center gap-2">
+              <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"/></svg>
+              <span>Sign Out</span>
+            </button>
+          </div>
+        </div>
+
+      </div>
+    </header>
+
+
+    <!-- ===================== PAGE CONTENT VIEWS ===================== -->
+    <main class="flex-1 p-5 md:p-8 space-y-6 max-w-7xl mx-auto w-full">
+
+      <!-- ============================================== -->
+      <!-- VIEW 1: DASHBOARD (EXACT MATCH TO SCREENSHOT) -->
+      <!-- ============================================== -->
+      <div id="view-dashboard" class="space-y-6">
+
+        <!-- HERO BANNER -->
+        <div class="rounded-2xl p-6 md:p-8 relative overflow-hidden border border-white/[0.08] shadow-2xl flex flex-col md:flex-row justify-between items-center gap-6"
+             style="background: linear-gradient(135deg, rgba(13,22,32,0.92) 0%, rgba(9,15,22,0.95) 100%), url('https://images.unsplash.com/photo-1544620347-c4fd4a3d5957?auto=format&fit=crop&w=1200&q=80') center/cover;">
+          
+          <!-- Banner Left Text -->
+          <div class="space-y-4 max-w-xl z-10">
+            <div class="inline-flex items-center gap-2 px-3 py-1 rounded-md bg-teal-500/15 border border-teal-500/30 text-teal-400 text-[10px] font-black uppercase tracking-widest">
+              AI POWERED
+            </div>
+            
+            <h2 class="text-2xl md:text-4xl font-extrabold text-white tracking-tight leading-tight">
+              Pothole Detection &<br/>
+              <span class="text-teal-400">Reporting System</span>
+            </h2>
+
+            <p class="text-xs md:text-sm text-slate-300 leading-relaxed max-w-lg font-normal">
+              Detect potholes, report them in real-time, and help build safer roads for everyone.
+            </p>
+
+            <div class="flex items-center gap-3 pt-2">
+              <button onclick="triggerUploadModal()" class="px-5 py-2.5 rounded-xl btn-cyan text-slate-950 font-bold text-xs md:text-sm flex items-center gap-2">
+                <svg class="w-4 h-4 text-slate-950" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z"/></svg>
+                <span>Upload Image</span>
+              </button>
+
+              <button onclick="switchNav('detect')" class="px-5 py-2.5 rounded-xl btn-dark-outline text-xs md:text-sm flex items-center gap-2">
+                <svg class="w-4 h-4 text-teal-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
+                <span>Report Manually</span>
+              </button>
+            </div>
+          </div>
+
+          <!-- Banner Right Graphic (Bounding box overlay matching screenshot) -->
+          <div class="relative w-full md:w-80 h-44 rounded-xl overflow-hidden border border-teal-500/30 shadow-2xl flex-shrink-0"
+               style="background: url('https://images.unsplash.com/photo-1515162816999-a0c47dc192f7?auto=format&fit=crop&w=600&q=80') center/cover;">
+            
+            <!-- AI Bounding Box overlay -->
+            <div class="absolute inset-x-8 inset-y-6 border-2 border-teal-400 rounded bg-teal-400/10 flex flex-col justify-between p-1.5">
+              <div class="flex items-center justify-between text-[10px] font-bold">
+                <span class="bg-teal-400 text-slate-950 px-1.5 py-0.5 rounded">Pothole Detected</span>
+                <span class="bg-slate-900/80 text-teal-300 px-1.5 py-0.5 rounded border border-teal-400/30">0.93</span>
+              </div>
+              <div class="text-right text-[10px] font-mono text-teal-300 bg-slate-900/60 px-1 rounded w-fit self-end">0.93</div>
+            </div>
+
+            <!-- Stylized handwritten text matching screenshot -->
+            <div class="absolute bottom-2 right-3 font-handwritten text-teal-300 text-lg md:text-xl font-bold rotate-[-4deg] drop-shadow-md">
+              Smarter Roads, Safer Commutes ✎
+            </div>
+
+            <!-- Vertical step indicators -->
+            <div class="absolute top-2 right-2 text-[8px] uppercase tracking-widest font-mono text-slate-400 text-right leading-tight">
+              DETECT<br/>REPORT<br/>IMPROVE
+            </div>
+          </div>
+
+        </div>
+
+        <!-- 4 METRIC STAT CARDS -->
+        <div class="grid grid-cols-2 lg:grid-cols-4 gap-4">
+          
+          <!-- Stat 1: Potholes Detected -->
+          <div class="rg-card p-4 flex items-center justify-between">
+            <div class="flex items-center gap-3">
+              <div class="w-10 h-10 rounded-xl bg-teal-500/15 border border-teal-500/30 flex items-center justify-center text-teal-400">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>
+              </div>
+              <div>
+                <h3 class="text-xl font-black text-white" id="statPotholes">1,248</h3>
+                <p class="text-[11px] text-slate-400 font-medium">Potholes Detected</p>
+              </div>
+            </div>
+            <div class="text-right">
+              <span class="inline-flex items-center text-[10px] font-bold text-teal-400 bg-teal-500/10 px-1.5 py-0.5 rounded">↑ 12%</span>
+              <svg class="w-12 h-5 text-teal-400 mt-1" viewBox="0 0 50 20" fill="none" stroke="currentColor" stroke-width="2"><path d="M0 15 Q12 18, 25 10 T50 4"/></svg>
+            </div>
+          </div>
+
+          <!-- Stat 2: Reports Resolved -->
+          <div class="rg-card p-4 flex items-center justify-between">
+            <div class="flex items-center gap-3">
+              <div class="w-10 h-10 rounded-xl bg-amber-500/15 border border-amber-500/30 flex items-center justify-center text-amber-400">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+              </div>
+              <div>
+                <h3 class="text-xl font-black text-white" id="statResolved">892</h3>
+                <p class="text-[11px] text-slate-400 font-medium">Reports Resolved</p>
+              </div>
+            </div>
+            <div class="text-right">
+              <span class="inline-flex items-center text-[10px] font-bold text-amber-400 bg-amber-500/10 px-1.5 py-0.5 rounded">↑ 18%</span>
+              <svg class="w-12 h-5 text-amber-400 mt-1" viewBox="0 0 50 20" fill="none" stroke="currentColor" stroke-width="2"><path d="M0 16 Q15 12, 30 14 T50 5"/></svg>
+            </div>
+          </div>
+
+          <!-- Stat 3: Under Review -->
+          <div class="rg-card p-4 flex items-center justify-between">
+            <div class="flex items-center gap-3">
+              <div class="w-10 h-10 rounded-xl bg-blue-500/15 border border-blue-500/30 flex items-center justify-center text-blue-400">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+              </div>
+              <div>
+                <h3 class="text-xl font-black text-white" id="statUnderReview">356</h3>
+                <p class="text-[11px] text-slate-400 font-medium">Under Review</p>
+              </div>
+            </div>
+            <div class="text-right">
+              <span class="inline-flex items-center text-[10px] font-bold text-red-400 bg-red-500/10 px-1.5 py-0.5 rounded">↓ 5%</span>
+              <svg class="w-12 h-5 text-red-400 mt-1" viewBox="0 0 50 20" fill="none" stroke="currentColor" stroke-width="2"><path d="M0 6 Q15 10, 30 8 T50 16"/></svg>
+            </div>
+          </div>
+
+          <!-- Stat 4: Active Contributors -->
+          <div class="rg-card p-4 flex items-center justify-between">
+            <div class="flex items-center gap-3">
+              <div class="w-10 h-10 rounded-xl bg-purple-500/15 border border-purple-500/30 flex items-center justify-center text-purple-400">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"/></svg>
+              </div>
+              <div>
+                <h3 class="text-xl font-black text-white" id="statContributors">2,430</h3>
+                <p class="text-[11px] text-slate-400 font-medium">Active Contributors</p>
+              </div>
+            </div>
+            <div class="text-right">
+              <span class="inline-flex items-center text-[10px] font-bold text-teal-400 bg-teal-500/10 px-1.5 py-0.5 rounded">↑ 22%</span>
+              <svg class="w-12 h-5 text-purple-400 mt-1" viewBox="0 0 50 20" fill="none" stroke="currentColor" stroke-width="2"><path d="M0 18 Q15 14, 30 10 T50 4"/></svg>
+            </div>
+          </div>
+
+        </div>
+
+        <!-- MAIN INTERACTIVE ROW 1: (Upload & Detect) | (Detection Preview) | (Live Map) -->
+        <div class="grid grid-cols-1 lg:grid-cols-12 gap-5">
+          
+          <!-- Card 1: Upload & Detect (4 cols) -->
+          <div class="lg:col-span-4 rg-card p-5 flex flex-col justify-between space-y-4">
+            <div class="flex items-center justify-between">
+              <h3 class="text-sm font-bold text-white flex items-center gap-2">
+                <svg class="w-4 h-4 text-teal-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z"/></svg>
+                <span>Upload & Detect</span>
+              </h3>
+              <span class="text-xs text-slate-500 hover:text-teal-400 cursor-pointer" onclick="switchNav('detect')">›</span>
+            </div>
+
+            <!-- Upload drag drop zone -->
+            <div class="upload-dropzone p-6 flex flex-col items-center justify-center text-center cursor-pointer min-h-[175px]"
+                 onclick="document.getElementById('dashFileInput').click()" id="dashDropzone">
+              <div class="w-11 h-11 rounded-2xl bg-teal-500/10 border border-teal-500/20 flex items-center justify-center text-teal-400 mb-3 shadow-inner">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/></svg>
+              </div>
+              <p class="text-xs font-semibold text-slate-200">Drag & drop an image here</p>
+              <p class="text-[11px] text-teal-400/90 font-medium">or click to upload</p>
+              <span class="text-[10px] text-slate-500 mt-2 font-mono">Supports JPG, PNG (Max 10MB)</span>
+            </div>
+            <input type="file" id="dashFileInput" accept="image/*" class="hidden" onchange="handleDashUpload(this)"/>
+
+            <button onclick="document.getElementById('dashFileInput').click()" class="w-full py-2.5 rounded-xl btn-cyan text-slate-950 font-bold text-xs flex items-center justify-center gap-2">
+              <span>Upload Image</span>
+            </button>
+          </div>
+
+          <!-- Card 2: Detection Preview (4 cols) -->
+          <div class="lg:col-span-4 rg-card p-5 flex flex-col justify-between space-y-4">
+            <div class="flex items-center justify-between">
+              <h3 class="text-sm font-bold text-white flex items-center gap-2">
+                <span>Detection Preview</span>
+              </h3>
+              <span class="text-xs text-slate-500">›</span>
+            </div>
+
+            <!-- Image preview box matching image with bounding box -->
+            <div class="relative rounded-xl overflow-hidden border border-white/10 h-36 bg-slate-950 flex items-center justify-center">
+              <img id="previewImg" src="https://images.unsplash.com/photo-1515162816999-a0c47dc192f7?auto=format&fit=crop&w=600&q=80" 
+                   alt="Pothole Detection" class="w-full h-full object-cover"/>
+              
+              <!-- Red Bounding Box label matching screenshot -->
+              <div id="previewBoxTag" class="absolute inset-x-12 inset-y-6 border-2 border-red-500 rounded bg-red-500/10 flex items-start justify-start p-1 pointer-events-none">
+                <span class="bg-red-500 text-white text-[9px] font-bold px-1.5 py-0.2 rounded" id="previewBoxText">Pothole 0.87</span>
+              </div>
+
+              <div class="absolute top-2 right-2 bg-slate-900/80 border border-teal-400/30 text-teal-400 text-[10px] font-semibold px-2 py-0.5 rounded-md flex items-center gap-1">
+                <span class="w-1.5 h-1.5 rounded-full bg-teal-400 animate-pulse"></span>
+                <span>AI Detected</span>
+              </div>
+            </div>
+
+            <!-- Details column matching reference image -->
+            <div class="space-y-1.5 text-xs">
+              <div class="flex items-center justify-between">
+                <span class="text-slate-400 flex items-center gap-1.5">
+                  <svg class="w-3.5 h-3.5 text-teal-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
+                  <span>Confidence</span>
+                </span>
+                <span class="font-bold text-white" id="previewConf">87%</span>
+              </div>
+
+              <div class="flex items-center justify-between">
+                <span class="text-slate-400 flex items-center gap-1.5">
+                  <svg class="w-3.5 h-3.5 text-teal-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"/></svg>
+                  <span>Location</span>
+                </span>
+                <span class="font-medium text-slate-200 text-[11px]" id="previewLocation">12.9716, 77.5946 · Bengaluru</span>
+              </div>
+
+              <div class="flex items-center justify-between">
+                <span class="text-slate-400 flex items-center gap-1.5">
+                  <svg class="w-3.5 h-3.5 text-teal-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4"/></svg>
+                  <span>Estimated Size</span>
+                </span>
+                <span class="font-medium text-slate-200 text-[11px]" id="previewSize">~ 0.8 m (width)</span>
+              </div>
+
+              <div class="flex items-center justify-between pt-0.5">
+                <span class="text-slate-400 flex items-center gap-1.5">
+                  <svg class="w-3.5 h-3.5 text-teal-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/></svg>
+                  <span>Severity</span>
+                </span>
+                <span class="px-2 py-0.5 rounded text-[10px] font-bold badge-sev-high" id="previewSevBadge">High</span>
+              </div>
+            </div>
+
+            <!-- Orange Action Button -->
+            <button onclick="reportCurrentPreview()" class="w-full py-2.5 rounded-xl btn-orange text-white font-bold text-xs flex items-center justify-center gap-2">
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5.882V19.24a1.76 1.76 0 01-3.417.592l-2.147-6.15M18 13a3 3 0 100-6M5.436 13.683A4.001 4.001 0 017 6h1.832c4.1 0 7.625-1.234 9.168-3v14c-1.543-1.766-5.067-3-9.168-3H7a3.988 3.988 0 01-1.564-.317z"/></svg>
+              <span>Report This Pothole</span>
+            </button>
+          </div>
+
+          <!-- Card 3: Live Map (4 cols) -->
+          <div class="lg:col-span-4 rg-card p-5 flex flex-col justify-between space-y-3">
+            <div class="flex items-center justify-between">
+              <h3 class="text-sm font-bold text-white flex items-center gap-2">
+                <span>Live Map</span>
+              </h3>
+              <button onclick="switchNav('map')" class="text-xs font-semibold text-teal-400 hover:underline flex items-center gap-1">
+                <span>View Full Map</span>
+                <span>→</span>
+              </button>
+            </div>
+
+            <!-- Leaflet Container -->
+            <div id="liveMap" class="w-full h-44 rounded-xl border border-white/10 overflow-hidden relative"></div>
+
+            <!-- Legend matching image -->
+            <div class="flex items-center justify-between text-[11px] pt-1">
+              <div class="flex items-center gap-4">
+                <span class="flex items-center gap-1.5 text-slate-300">
+                  <span class="w-2 h-2 rounded-full bg-red-500"></span> High
+                </span>
+                <span class="flex items-center gap-1.5 text-slate-300">
+                  <span class="w-2 h-2 rounded-full bg-amber-400"></span> Medium
+                </span>
+                <span class="flex items-center gap-1.5 text-slate-300">
+                  <span class="w-2 h-2 rounded-full bg-emerald-400"></span> Low
+                </span>
+              </div>
+              <button onclick="centerMapToUser()" class="text-slate-400 hover:text-teal-400 text-xs">📍 My GPS</button>
+            </div>
+          </div>
+
+        </div>
+
+
+        <!-- MAIN ROW 2: (How It Works) | (Recent Reports) -->
+        <div class="grid grid-cols-1 lg:grid-cols-12 gap-5">
+          
+          <!-- How It Works (7 cols) -->
+          <div class="lg:col-span-7 rg-card p-6 space-y-5">
+            <h3 class="text-sm font-bold text-white">How It Works</h3>
+
+            <div class="grid grid-cols-2 md:grid-cols-4 gap-4 relative">
+              
+              <!-- Step 1 -->
+              <div class="space-y-2">
+                <div class="w-7 h-7 rounded-full bg-teal-400 text-slate-950 font-black text-xs flex items-center justify-center shadow-md shadow-teal-400/30">1</div>
+                <h4 class="text-xs font-bold text-white">Upload Image</h4>
+                <p class="text-[11px] text-slate-400 leading-snug">Upload or capture a road image.</p>
+              </div>
+
+              <!-- Step 2 -->
+              <div class="space-y-2">
+                <div class="w-7 h-7 rounded-full bg-blue-500 text-white font-black text-xs flex items-center justify-center shadow-md shadow-blue-500/30">2</div>
+                <h4 class="text-xs font-bold text-white">AI Detection</h4>
+                <p class="text-[11px] text-slate-400 leading-snug">Our model detects potholes automatically.</p>
+              </div>
+
+              <!-- Step 3 -->
+              <div class="space-y-2">
+                <div class="w-7 h-7 rounded-full bg-purple-500 text-white font-black text-xs flex items-center justify-center shadow-md shadow-purple-500/30">3</div>
+                <h4 class="text-xs font-bold text-white">Get Results</h4>
+                <p class="text-[11px] text-slate-400 leading-snug">View location, size and severity.</p>
+              </div>
+
+              <!-- Step 4 -->
+              <div class="space-y-2">
+                <div class="w-7 h-7 rounded-full bg-orange-500 text-white font-black text-xs flex items-center justify-center shadow-md shadow-orange-500/30">4</div>
+                <h4 class="text-xs font-bold text-white">Report</h4>
+                <p class="text-[11px] text-slate-400 leading-snug">Submit to authorities with one click.</p>
+              </div>
+
+            </div>
+          </div>
+
+          <!-- Recent Reports (5 cols) matching screenshot -->
+          <div class="lg:col-span-5 rg-card p-5 space-y-3 flex flex-col justify-between">
+            <div class="flex items-center justify-between">
+              <h3 class="text-sm font-bold text-white">Recent Reports</h3>
+              <button onclick="switchNav('reports')" class="text-xs font-semibold text-teal-400 hover:underline flex items-center gap-1">
+                <span>View All</span>
+                <span>→</span>
+              </button>
+            </div>
+
+            <!-- List items matching image -->
+            <div class="space-y-2.5" id="recentReportsList">
+              
+              <!-- Report 1 -->
+              <div class="flex items-center justify-between p-2 rounded-xl bg-white/[0.02] border border-white/[0.04] hover:bg-white/[0.05] transition-all cursor-pointer">
+                <div class="flex items-center gap-2.5">
+                  <img src="https://images.unsplash.com/photo-1515162816999-a0c47dc192f7?auto=format&fit=crop&w=80&q=80" class="w-10 h-10 rounded-lg object-cover border border-white/10"/>
+                  <div>
+                    <h4 class="text-xs font-bold text-white">Hosur Road</h4>
+                    <p class="text-[10px] text-slate-400">Bengaluru, KA</p>
+                  </div>
+                </div>
+                <div class="text-right">
+                  <span class="px-2 py-0.5 rounded text-[10px] font-bold badge-sev-high">High</span>
+                  <p class="text-[10px] text-slate-500 mt-1 font-mono">2 hours ago</p>
+                </div>
+              </div>
+
+              <!-- Report 2 -->
+              <div class="flex items-center justify-between p-2 rounded-xl bg-white/[0.02] border border-white/[0.04] hover:bg-white/[0.05] transition-all cursor-pointer">
+                <div class="flex items-center gap-2.5">
+                  <img src="https://images.unsplash.com/photo-1544620347-c4fd4a3d5957?auto=format&fit=crop&w=80&q=80" class="w-10 h-10 rounded-lg object-cover border border-white/10"/>
+                  <div>
+                    <h4 class="text-xs font-bold text-white">Outer Ring Road</h4>
+                    <p class="text-[10px] text-slate-400">Bengaluru, KA</p>
+                  </div>
+                </div>
+                <div class="text-right">
+                  <span class="px-2 py-0.5 rounded text-[10px] font-bold badge-sev-medium">Medium</span>
+                  <p class="text-[10px] text-slate-500 mt-1 font-mono">5 hours ago</p>
+                </div>
+              </div>
+
+              <!-- Report 3 -->
+              <div class="flex items-center justify-between p-2 rounded-xl bg-white/[0.02] border border-white/[0.04] hover:bg-white/[0.05] transition-all cursor-pointer">
+                <div class="flex items-center gap-2.5">
+                  <img src="https://images.unsplash.com/photo-1506744038136-46273834b3fb?auto=format&fit=crop&w=80&q=80" class="w-10 h-10 rounded-lg object-cover border border-white/10"/>
+                  <div>
+                    <h4 class="text-xs font-bold text-white">Whitefield Main Road</h4>
+                    <p class="text-[10px] text-slate-400">Bengaluru, KA</p>
+                  </div>
+                </div>
+                <div class="text-right">
+                  <span class="px-2 py-0.5 rounded text-[10px] font-bold badge-sev-low">Low</span>
+                  <p class="text-[10px] text-slate-500 mt-1 font-mono">1 day ago</p>
+                </div>
+              </div>
+
+            </div>
+          </div>
+
+        </div>
+
+      </div>
+
+
+      <!-- ============================================== -->
+      <!-- VIEW 2: DETECT & REPORT STUDIO (FULL VIEW)     -->
+      <!-- ============================================== -->
+      <div id="view-detect" class="hidden space-y-6">
+        <div class="flex items-center justify-between">
+          <div>
+            <h2 class="text-xl font-black text-white">Detect & Report Studio</h2>
+            <p class="text-xs text-slate-400">Analyze road imagery and dispatch civic reports directly to municipal maintenance queues.</p>
+          </div>
+          <button onclick="switchNav('dashboard')" class="text-xs text-teal-400 hover:underline">← Back to Dashboard</button>
+        </div>
+
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          
+          <!-- Upload & Controls -->
+          <div class="rg-card p-6 space-y-4">
+            <h3 class="text-sm font-bold text-white">1. Select Road Image</h3>
+
+            <div class="upload-dropzone p-8 flex flex-col items-center justify-center text-center cursor-pointer min-h-[220px]"
+                 onclick="document.getElementById('studioFileInput').click()" id="studioDropzone">
+              <div id="studioPreviewWrap" class="hidden w-full space-y-2">
+                <img id="studioPreviewImg" class="max-h-48 mx-auto rounded-lg object-contain shadow-lg"/>
+                <p id="studioFileName" class="text-xs text-teal-400 font-mono"></p>
+              </div>
+              <div id="studioPlaceholder" class="space-y-2">
+                <div class="w-12 h-12 rounded-2xl bg-teal-500/10 border border-teal-500/20 flex items-center justify-center text-teal-400 mx-auto shadow-inner">
+                  <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
+                </div>
+                <p class="text-sm font-bold text-white">Drop road photo or click to browse</p>
+                <p class="text-xs text-slate-500">Supports JPG, PNG, WEBP</p>
+              </div>
+            </div>
+            <input type="file" id="studioFileInput" accept="image/*" class="hidden" onchange="handleStudioFile(this)"/>
+
+            <button id="studioDetectBtn" onclick="runStudioInference()" disabled
+                    class="w-full py-3 rounded-xl btn-cyan text-slate-950 font-bold text-sm flex items-center justify-center gap-2">
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
+              <span>Run AI Detection</span>
+            </button>
+          </div>
+
+          <!-- Location & Submission Details -->
+          <div class="rg-card p-6 space-y-4">
+            <h3 class="text-sm font-bold text-white">2. Report Details & Location</h3>
+
+            <div class="space-y-3">
+              <div>
+                <label class="text-xs text-slate-400 block mb-1">Reporter Name</label>
+                <input type="text" id="reportInputName" placeholder="e.g. Abhinav Raj" class="w-full bg-[#0c141d] border border-white/10 rounded-xl px-3.5 py-2.5 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-teal-500"/>
+              </div>
+
+              <div>
+                <label class="text-xs text-slate-400 block mb-1">Location / Street Description</label>
+                <input type="text" id="reportInputLocation" placeholder="e.g. Hosur Road near Silk Board, Bengaluru" class="w-full bg-[#0c141d] border border-white/10 rounded-xl px-3.5 py-2.5 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-teal-500"/>
+              </div>
+
+              <div class="grid grid-cols-2 gap-3">
+                <div>
+                  <label class="text-xs text-slate-400 block mb-1">Latitude</label>
+                  <input type="number" step="any" id="reportInputLat" placeholder="12.9716" class="w-full bg-[#0c141d] border border-white/10 rounded-xl px-3.5 py-2.5 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-teal-500"/>
+                </div>
+                <div>
+                  <label class="text-xs text-slate-400 block mb-1">Longitude</label>
+                  <input type="number" step="any" id="reportInputLng" placeholder="77.5946" class="w-full bg-[#0c141d] border border-white/10 rounded-xl px-3.5 py-2.5 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-teal-500"/>
+                </div>
+              </div>
+
+              <div class="flex items-center gap-2 pt-1">
+                <button onclick="acquireStudioGPS()" class="px-4 py-2 rounded-xl btn-dark-outline text-xs text-teal-400 flex items-center gap-1.5">
+                  <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"/></svg>
+                  <span id="gpsBtnText">📍 Use My Live GPS</span>
+                </button>
+                <span id="gpsFeedback" class="text-[11px] text-slate-400"></span>
+              </div>
+            </div>
+
+            <div class="pt-4 border-t border-white/[0.06]">
+              <button id="studioSubmitReportBtn" onclick="submitStudioReport()" disabled
+                      class="w-full py-3 rounded-xl btn-orange text-white font-bold text-sm flex items-center justify-center gap-2">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5.882V19.24a1.76 1.76 0 01-3.417.592l-2.147-6.15M18 13a3 3 0 100-6M5.436 13.683A4.001 4.001 0 017 6h1.832c4.1 0 7.625-1.234 9.168-3v14c-1.543-1.766-5.067-3-9.168-3H7a3.988 3.988 0 01-1.564-.317z"/></svg>
+                <span>Dispatch Report to Authorities</span>
+              </button>
+            </div>
+          </div>
+
+        </div>
+
+        <!-- Studio Detection Output Display -->
+        <div id="studioResultCard" class="hidden rg-card p-6 space-y-4">
+          <h3 class="text-sm font-bold text-white">Detection Output</h3>
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-6 items-center">
+            <img id="studioAnnotatedImg" class="rounded-xl border border-white/10 w-full max-h-72 object-contain bg-slate-950"/>
+            <div class="space-y-3 text-xs">
+              <div class="flex justify-between py-1 border-b border-white/5">
+                <span class="text-slate-400">Potholes Detected</span>
+                <span class="font-bold text-white text-base" id="studioResCount">0</span>
+              </div>
+              <div class="flex justify-between py-1 border-b border-white/5">
+                <span class="text-slate-400">Overall Severity</span>
+                <span id="studioResSevBadge"></span>
+              </div>
+              <div class="flex justify-between py-1 border-b border-white/5">
+                <span class="text-slate-400">Confidence</span>
+                <span class="font-bold text-teal-400" id="studioResConf">0%</span>
+              </div>
+              <div class="flex justify-between py-1 border-b border-white/5">
+                <span class="text-slate-400">Estimated Size</span>
+                <span class="font-bold text-slate-200" id="studioResSize">—</span>
+              </div>
+              <div class="flex justify-between py-1 border-b border-white/5">
+                <span class="text-slate-400">Inference Latency</span>
+                <span class="font-mono text-teal-300" id="studioResLatency">—</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+      </div>
+
+
+      <!-- ============================================== -->
+      <!-- VIEW 3: FULL SCREEN MAP VIEW                  -->
+      <!-- ============================================== -->
+      <div id="view-map" class="hidden space-y-4">
+        <div class="flex items-center justify-between">
+          <div>
+            <h2 class="text-xl font-black text-white">Full Live Map</h2>
+            <p class="text-xs text-slate-400">Interactive geospatial view of all road hazards and maintenance statuses.</p>
+          </div>
+          <div class="flex items-center gap-2">
+            <button onclick="centerMapToUser()" class="px-3 py-1.5 rounded-lg btn-dark-outline text-xs text-teal-400 flex items-center gap-1">
+              📍 My Location
+            </button>
+            <button onclick="switchNav('dashboard')" class="text-xs text-teal-400 hover:underline">← Dashboard</button>
+          </div>
+        </div>
+
+        <div class="rg-card p-4 space-y-3">
+          <div class="flex items-center gap-3 text-xs">
+            <span class="text-slate-400">Filter:</span>
+            <button onclick="filterMapMarkers('all')" class="px-2.5 py-1 rounded bg-teal-500/20 text-teal-400 font-semibold">All</button>
+            <button onclick="filterMapMarkers('High')" class="px-2.5 py-1 rounded bg-red-500/20 text-red-400 font-semibold">High / Critical</button>
+            <button onclick="filterMapMarkers('Medium')" class="px-2.5 py-1 rounded bg-amber-500/20 text-amber-400 font-semibold">Medium</button>
+            <button onclick="filterMapMarkers('Low')" class="px-2.5 py-1 rounded bg-emerald-500/20 text-emerald-400 font-semibold">Low</button>
+          </div>
+
+          <div id="fullMapView" class="w-full h-[550px] rounded-xl border border-white/10"></div>
+        </div>
+      </div>
+
+
+      <!-- ============================================== -->
+      <!-- VIEW 4: MY REPORTS / TRIAGE TABLE             -->
+      <!-- ============================================== -->
+      <div id="view-reports" class="hidden space-y-4">
+        <div class="flex items-center justify-between">
+          <div>
+            <h2 class="text-xl font-black text-white">Civic Reports Triage</h2>
+            <p class="text-xs text-slate-400">Track lifecycle of submitted reports from Open to In Review and Resolved.</p>
+          </div>
+          <div class="flex items-center gap-2">
+            <button onclick="exportReportsCSV()" class="px-3 py-1.5 rounded-lg btn-dark-outline text-xs text-slate-200 hover:text-white flex items-center gap-1.5">
+              <svg class="w-3.5 h-3.5 text-teal-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
+              <span>Export CSV</span>
+            </button>
+            <button onclick="switchNav('dashboard')" class="text-xs text-teal-400 hover:underline">← Dashboard</button>
+          </div>
+        </div>
+
+        <div class="rg-card overflow-hidden">
+          <div class="p-4 border-b border-white/[0.06] flex items-center justify-between">
+            <input type="text" id="reportSearchFilter" placeholder="Filter by road or location..." 
+                   class="bg-[#0b121a] border border-white/10 rounded-xl px-3 py-1.5 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-teal-500"
+                   oninput="filterReportsTable(this.value)"/>
+            <button onclick="loadAllReports()" class="text-xs text-teal-400 hover:underline">Refresh List</button>
+          </div>
+
+          <div class="overflow-x-auto">
+            <table class="w-full text-left text-xs">
+              <thead class="bg-[#0d1620] text-slate-400 border-b border-white/[0.06] uppercase tracking-wider font-semibold">
+                <tr>
+                  <th class="p-3.5">ID</th>
+                  <th class="p-3.5">Location</th>
+                  <th class="p-3.5">Severity</th>
+                  <th class="p-3.5">Estimated Size</th>
+                  <th class="p-3.5">Status</th>
+                  <th class="p-3.5">Date</th>
+                  <th class="p-3.5">Action</th>
+                </tr>
+              </thead>
+              <tbody id="reportsTableBody" class="divide-y divide-white/[0.04] text-slate-200">
+                <!-- Dynamically loaded rows -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+
+      <!-- ============================================== -->
+      <!-- VIEW 5: ANALYTICS & INSIGHTS                   -->
+      <!-- ============================================== -->
+      <div id="view-analytics" class="hidden space-y-6">
+        <div class="flex items-center justify-between">
+          <div>
+            <h2 class="text-xl font-black text-white">Civic Analytics & Risk Trends</h2>
+            <p class="text-xs text-slate-400">Actionable intelligence for municipal road safety infrastructure.</p>
+          </div>
+          <button onclick="switchNav('dashboard')" class="text-xs text-teal-400 hover:underline">← Dashboard</button>
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <div class="rg-card p-6 space-y-4">
+            <h3 class="text-sm font-bold text-white">Severity Breakdown</h3>
+            <canvas id="analyticsSeverityCanvas" class="w-full h-64 rounded-xl"></canvas>
+          </div>
+
+          <div class="rg-card p-6 space-y-4">
+            <h3 class="text-sm font-bold text-white">Triage Status Pipeline</h3>
+            <div class="space-y-4 pt-4 text-xs">
+              <div>
+                <div class="flex justify-between mb-1">
+                  <span class="text-slate-400">Reports Resolved (65%)</span>
+                  <span class="font-bold text-emerald-400">892</span>
+                </div>
+                <div class="w-full h-2.5 rounded-full bg-white/5 overflow-hidden">
+                  <div class="h-full bg-emerald-400 rounded-full" style="width: 65%"></div>
+                </div>
+              </div>
+
+              <div>
+                <div class="flex justify-between mb-1">
+                  <span class="text-slate-400">Under Review / Scheduled (25%)</span>
+                  <span class="font-bold text-amber-400">356</span>
+                </div>
+                <div class="w-full h-2.5 rounded-full bg-white/5 overflow-hidden">
+                  <div class="h-full bg-amber-400 rounded-full" style="width: 25%"></div>
+                </div>
+              </div>
+
+              <div>
+                <div class="flex justify-between mb-1">
+                  <span class="text-slate-400">Newly Reported / Open (10%)</span>
+                  <span class="font-bold text-blue-400">142</span>
+                </div>
+                <div class="w-full h-2.5 rounded-full bg-white/5 overflow-hidden">
+                  <div class="h-full bg-blue-400 rounded-full" style="width: 10%"></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+
+      <!-- ============================================== -->
+      <!-- VIEW 6: COMMUNITY LEADERBOARD                  -->
+      <!-- ============================================== -->
+      <div id="view-community" class="hidden space-y-6">
+        <div class="flex items-center justify-between">
+          <div>
+            <h2 class="text-xl font-black text-white">Community & Civic Leaders</h2>
+            <p class="text-xs text-slate-400">Top contributors helping repair and modernize our urban transport arteries.</p>
+          </div>
+          <button onclick="switchNav('dashboard')" class="text-xs text-teal-400 hover:underline">← Dashboard</button>
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-5">
+          <div class="rg-card p-5 text-center space-y-3 border-teal-500/30">
+            <div class="w-16 h-16 rounded-full bg-gradient-to-tr from-teal-400 to-emerald-500 mx-auto flex items-center justify-center text-slate-950 font-black text-xl shadow-lg shadow-teal-500/20">
+              AR
+            </div>
+            <div>
+              <h3 class="text-sm font-bold text-white">Abhinav Raj</h3>
+              <p class="text-[11px] text-teal-400 font-semibold">Rank #1 · Champion Reporter</p>
+            </div>
+            <div class="text-xs text-slate-400 border-t border-white/5 pt-3">
+              <span class="font-bold text-white">84</span> verified reports submitted
+            </div>
+          </div>
+
+          <div class="rg-card p-5 text-center space-y-3">
+            <div class="w-16 h-16 rounded-full bg-amber-500/20 text-amber-300 mx-auto flex items-center justify-center font-black text-xl border border-amber-500/30">
+              PS
+            </div>
+            <div>
+              <h3 class="text-sm font-bold text-white">Priya Sharma</h3>
+              <p class="text-[11px] text-amber-400 font-semibold">Rank #2 · Safety Scout</p>
+            </div>
+            <div class="text-xs text-slate-400 border-t border-white/5 pt-3">
+              <span class="font-bold text-white">62</span> verified reports submitted
+            </div>
+          </div>
+
+          <div class="rg-card p-5 text-center space-y-3">
+            <div class="w-16 h-16 rounded-full bg-blue-500/20 text-blue-300 mx-auto flex items-center justify-center font-black text-xl border border-blue-500/30">
+              RV
+            </div>
+            <div>
+              <h3 class="text-sm font-bold text-white">Rahul Verma</h3>
+              <p class="text-[11px] text-blue-400 font-semibold">Rank #3 · Ward Guardian</p>
+            </div>
+            <div class="text-xs text-slate-400 border-t border-white/5 pt-3">
+              <span class="font-bold text-white">47</span> verified reports submitted
+            </div>
+          </div>
+        </div>
+      </div>
+
+
+      <!-- ============================================== -->
+      <!-- VIEW 7: SETTINGS                               -->
+      <!-- ============================================== -->
+      <div id="view-settings" class="hidden space-y-6">
+        <div class="flex items-center justify-between">
+          <div>
+            <h2 class="text-xl font-black text-white">System Settings</h2>
+            <p class="text-xs text-slate-400">Configure RoadGuard API integration and user preferences.</p>
+          </div>
+          <button onclick="switchNav('dashboard')" class="text-xs text-teal-400 hover:underline">← Dashboard</button>
+        </div>
+
+        <div class="rg-card p-6 max-w-2xl space-y-5">
+          <div class="space-y-3 text-xs">
+            <h4 class="font-bold text-white text-sm">Account Preferences</h4>
+            <div class="flex items-center justify-between p-3 rounded-xl bg-white/[0.02]">
+              <div>
+                <p class="font-semibold text-white">Email Notifications</p>
+                <p class="text-slate-400 text-[11px]">Receive updates when your reported potholes are resolved.</p>
+              </div>
+              <input type="checkbox" checked class="w-4 h-4 accent-teal-400"/>
+            </div>
+
+            <div class="flex items-center justify-between p-3 rounded-xl bg-white/[0.02]">
+              <div>
+                <p class="font-semibold text-white">High Precision GPS Lock</p>
+                <p class="text-slate-400 text-[11px]">Request hardware satellite accuracy when tagging pothole locations.</p>
+              </div>
+              <input type="checkbox" checked class="w-4 h-4 accent-teal-400"/>
+            </div>
+          </div>
+
+          <div class="pt-4 border-t border-white/10 flex justify-between items-center text-xs">
+            <span class="text-slate-500">RoadGuard Engine v2.5.0 · YOLOv8n</span>
+            <button onclick="alert('Settings saved successfully!')" class="px-4 py-2 rounded-xl btn-cyan text-slate-950 font-bold">Save Preferences</button>
+          </div>
+        </div>
+      </div>
+
+    </main>
+
+
+    <!-- ===================== FOOTER ===================== -->
+    <footer class="border-t border-white/[0.06] bg-[#0c141d]/70 px-6 py-6 mt-auto">
+      <div class="max-w-7xl mx-auto flex flex-col md:flex-row items-center justify-between gap-4 text-xs">
+        
+        <div class="flex items-center gap-3">
+          <div class="w-6 h-6 rounded-lg bg-teal-400 flex items-center justify-center text-slate-950 font-bold text-xs">
+            R
+          </div>
+          <div>
+            <span class="font-bold text-white">RoadGuard</span>
+            <span class="text-slate-500 text-[11px] ml-2">AI for Safer Roads</span>
+          </div>
+        </div>
+
+        <div class="flex items-center gap-6 text-slate-400">
+          <a href="#" class="hover:text-teal-400 transition-colors">About</a>
+          <a href="#" class="hover:text-teal-400 transition-colors">Privacy</a>
+          <a href="#" class="hover:text-teal-400 transition-colors">Support</a>
+          <a href="https://github.com" target="_blank" class="hover:text-teal-400 transition-colors">GitHub</a>
+          <a href="https://linkedin.com" target="_blank" class="hover:text-teal-400 transition-colors">LinkedIn</a>
+          <a href="https://twitter.com" target="_blank" class="hover:text-teal-400 transition-colors">Twitter</a>
+        </div>
+
+        <div class="font-handwritten text-teal-300 text-lg md:text-xl font-bold rotate-[-2deg]">
+          Small Reports. Big Change. ✎
+        </div>
+      </div>
+    </footer>
+
+  </div>
+</div>
+
+
+<!-- ======================================================== -->
+<!-- 3. AUTH MODAL (LOGIN / SIGNUP & GOOGLE AUTHENTICATION)    -->
+<!-- ======================================================== -->
+<div id="authModal" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4 modal-backdrop">
+  <div class="rg-card max-w-md w-full p-6 md:p-8 space-y-6 relative border-teal-500/30 shadow-2xl">
+    
+    <!-- Close X button -->
+    <button onclick="closeAuthModal()" class="absolute top-4 right-4 text-slate-400 hover:text-white">
+      <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+    </button>
+
+    <!-- Modal Header -->
+    <div class="text-center space-y-2">
+      <div class="w-10 h-10 rounded-xl bg-teal-400 flex items-center justify-center mx-auto text-slate-950 font-black shadow-lg shadow-teal-400/20">
+        R
+      </div>
+      <h3 class="text-xl font-black text-white" id="authModalTitle">Welcome to RoadGuard</h3>
+      <p class="text-xs text-slate-400">Sign in to track reports, earn civic badges, and help fix our roads.</p>
+    </div>
+
+    <!-- Google Authentication Button -->
+    <div class="space-y-3">
+      <button onclick="handleGoogleSignInDemo()" class="w-full py-2.5 px-4 rounded-xl bg-white text-slate-900 font-bold text-xs flex items-center justify-center gap-3 hover:bg-slate-100 transition-all shadow-md">
+        <svg class="w-4 h-4" viewBox="0 0 24 24">
+          <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
+          <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
+          <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z"/>
+          <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"/>
+        </svg>
+        <span>Continue with Google</span>
+      </button>
+
+      <!-- Google GSI target div if client library binds -->
+      <div id="g_id_onload"></div>
+
+      <div class="flex items-center gap-3 text-xs text-slate-500">
+        <div class="h-px bg-white/10 flex-1"></div>
+        <span>or use email</span>
+        <div class="h-px bg-white/10 flex-1"></div>
+      </div>
+    </div>
+
+    <!-- Local Form -->
+    <div class="space-y-3">
+      <div id="authNameField" class="hidden">
+        <label class="text-xs text-slate-400 block mb-1">Full Name</label>
+        <input type="text" id="authNameInput" placeholder="e.g. Abhinav Raj" class="w-full bg-[#0c141d] border border-white/10 rounded-xl px-3.5 py-2.5 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-teal-500"/>
+      </div>
+
+      <div>
+        <label class="text-xs text-slate-400 block mb-1">Email Address</label>
+        <input type="email" id="authEmailInput" placeholder="abhinav.raj@example.com" class="w-full bg-[#0c141d] border border-white/10 rounded-xl px-3.5 py-2.5 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-teal-500"/>
+      </div>
+
+      <div>
+        <label class="text-xs text-slate-400 block mb-1">Password</label>
+        <input type="password" id="authPasswordInput" placeholder="••••••••" class="w-full bg-[#0c141d] border border-white/10 rounded-xl px-3.5 py-2.5 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-teal-500"/>
+      </div>
+
+      <button onclick="handleLocalAuthSubmit()" class="w-full py-2.5 rounded-xl btn-cyan text-slate-950 font-bold text-xs shadow-md">
+        <span id="authSubmitBtnText">Sign In</span>
+      </button>
+    </div>
+
+    <!-- Toggle Login/Signup -->
+    <div class="text-center text-xs text-slate-400">
+      <span id="authToggleHint">Don't have an account?</span>
+      <button onclick="toggleAuthMode()" class="text-teal-400 font-bold ml-1 hover:underline" id="authToggleBtn">Sign Up</button>
+    </div>
+
+  </div>
+</div>
+
+
+<!-- ======================================================== -->
+<!-- 4. NOTIFICATIONS POPOVER                                  -->
+<!-- ======================================================== -->
+<div id="notificationsPopover" class="hidden fixed top-16 right-16 w-80 rounded-2xl bg-[#111a24] border border-white/10 shadow-2xl p-4 z-50 text-xs space-y-3">
+  <div class="flex items-center justify-between border-b border-white/5 pb-2">
+    <span class="font-bold text-white">Notifications</span>
+    <span class="text-[10px] bg-teal-500/20 text-teal-400 font-bold px-1.5 py-0.5 rounded">1 Unread</span>
+  </div>
+  <div class="space-y-2">
+    <div class="p-2.5 rounded-xl bg-teal-500/5 border border-teal-500/20">
+      <div class="flex items-center gap-2 text-teal-400 font-bold text-[11px]">
+        <span>✅ Report #3 Resolved</span>
+      </div>
+      <p class="text-slate-300 text-[11px] mt-1">Whitefield Main Road pothole was asphalt patched by municipal crew.</p>
+      <span class="text-[9px] text-slate-500 mt-1 block">4 hours ago</span>
+    </div>
+  </div>
+</div>
+
+
+<!-- ======================================================== -->
+<!-- 5. JAVASCRIPT LOGIC & APPLICATION ENGINE                  -->
+<!-- ======================================================== -->
+<script>
+  const API = '';
+  let liveMap = null;
+  let fullMap = null;
+  let mapMarkers = [];
+  let currentAuthMode = 'login'; // login | signup
+
+  // Sample fallback coordinate (Bengaluru center)
+  let currentCoordinates = { lat: 12.9716, lng: 77.5946 };
+  let currentUploadedFile = null;
+
+  // ─────────────────────────────────────────────────────────
+  // A. Entrance Transition
+  // ─────────────────────────────────────────────────────────
+  function enterPortal(targetTab) {
+    const welcome = document.getElementById('welcomeScreen');
+    const mainApp = document.getElementById('mainApp');
+    
+    welcome.style.opacity = '0';
+    welcome.style.pointerEvents = 'none';
+    
+    setTimeout(() => {
+      welcome.style.display = 'none';
+      mainApp.classList.remove('opacity-0');
+      mainApp.classList.add('opacity-100');
+      
+      // Initialize interactive maps after UI unhides
+      initLiveMap();
+      loadAnalyticsData();
+      loadAllReports();
+
+      if (targetTab) switchNav(targetTab);
+    }, 400);
+  }
+
+  // ─────────────────────────────────────────────────────────
+  // B. Navigation System
+  // ─────────────────────────────────────────────────────────
+  function switchNav(tabName) {
+    // Hide all views
+    ['dashboard', 'detect', 'map', 'reports', 'analytics', 'community', 'settings'].forEach(v => {
+      const el = document.getElementById('view-' + v);
+      if (el) el.classList.add('hidden');
+    });
+
+    // Unhide target view
+    const target = document.getElementById('view-' + tabName);
+    if (target) target.classList.remove('hidden');
+
+    // Update sidebar navigation active highlight
+    const items = document.querySelectorAll('#sidebarNav .nav-item');
+    items.forEach(item => item.classList.remove('active'));
+
+    const tabIndices = { dashboard: 0, detect: 1, map: 2, reports: 3, analytics: 4, community: 5, settings: 6 };
+    if (items[tabIndices[tabName]]) {
+      items[tabIndices[tabName]].classList.add('active');
+    }
+
+    // Special view triggers
+    if (tabName === 'map') {
+      setTimeout(() => initFullMap(), 200);
+    }
+    if (tabName === 'reports') {
+      loadAllReports();
+    }
+    if (tabName === 'analytics') {
+      renderAnalyticsCanvas();
+    }
+  }
+
+  // ─────────────────────────────────────────────────────────
+  // C. Interactive Leaflet Live Map
+  // ─────────────────────────────────────────────────────────
+  function initLiveMap() {
+    if (liveMap) return;
+    const mapEl = document.getElementById('liveMap');
+    if (!mapEl) return;
+
+    liveMap = L.map('liveMap', {
+      zoomControl: false,
+      attributionControl: false
+    }).setView([12.9716, 77.5946], 12);
+
+    L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+      maxZoom: 18,
+      subdomains: 'abcd',
+    }).addTo(liveMap);
+
+    L.control.zoom({ position: 'topright' }).addTo(liveMap);
+
+    fetchMapReports();
+  }
+
+  function initFullMap() {
+    if (fullMap) {
+      fullMap.invalidateSize();
+      return;
+    }
+    const mapEl = document.getElementById('fullMapView');
+    if (!mapEl) return;
+
+    fullMap = L.map('fullMapView', {
+      zoomControl: true,
+      attributionControl: false
+    }).setView([12.9716, 77.5946], 12);
+
+    L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+      maxZoom: 18,
+      subdomains: 'abcd',
+    }).addTo(fullMap);
+
+    fetchMapReports(fullMap);
+  }
+
+  async function fetchMapReports(targetMap = liveMap) {
+    try {
+      const res = await fetch(API + '/reports?limit=50');
+      const d = await res.json();
+      if (!d.reports) return;
+
+      d.reports.forEach(r => {
+        if (!r.latitude || !r.longitude) return;
+
+        const colorMap = {
+          Critical: '#c084fc',
+          High: '#ef4444',
+          Medium: '#f59e0b',
+          Low: '#10b981'
+        };
+        const color = colorMap[r.overall_severity] || '#ef4444';
+
+        const circleMarker = L.circleMarker([r.latitude, r.longitude], {
+          radius: 7,
+          fillColor: color,
+          color: '#ffffff',
+          weight: 1.5,
+          opacity: 0.9,
+          fillOpacity: 0.85
+        });
+
+        circleMarker.bindPopup(`
+          <div class="text-xs space-y-1">
+            <p class="font-bold text-white">${r.location_description || 'Pothole Report'}</p>
+            <p class="text-slate-300">Severity: <span style="color:${color};font-weight:bold;">${r.overall_severity}</span></p>
+            <p class="text-slate-400">Size: ${r.estimated_size_m || '~0.8 m'}</p>
+            <p class="text-slate-400">Status: <span class="font-semibold text-teal-400">${r.status}</span></p>
+          </div>
+        `);
+
+        circleMarker.addTo(targetMap);
+        mapMarkers.push({ marker: circleMarker, severity: r.overall_severity });
+      });
+    } catch (e) {
+      console.error('Error loading map data:', e);
+    }
+  }
+
+  function centerMapToUser() {
+    if (!navigator.geolocation) return alert('Geolocation not supported by your browser.');
+    navigator.geolocation.getCurrentPosition(pos => {
+      const { latitude, longitude } = pos.coords;
+      currentCoordinates = { lat: latitude, lng: longitude };
+      if (liveMap) liveMap.setView([latitude, longitude], 14);
+      if (fullMap) fullMap.setView([latitude, longitude], 14);
+    }, () => {
+      alert('Could not acquire your device location.');
+    });
+  }
+
+  function filterMapMarkers(severity) {
+    mapMarkers.forEach(({ marker, severity: markerSev }) => {
+      if (severity === 'all' || markerSev === severity || (severity === 'High' && (markerSev === 'High' || markerSev === 'Critical'))) {
+        marker.addTo(fullMap);
+      } else {
+        fullMap.removeLayer(marker);
+      }
+    });
+  }
+
+  // ─────────────────────────────────────────────────────────
+  // D. Detection & Upload Handling (Dashboard & Studio)
+  // ─────────────────────────────────────────────────────────
+  function triggerUploadModal() {
+    document.getElementById('dashFileInput').click();
+  }
+
+  function handleDashUpload(input) {
+    if (!input.files || !input.files[0]) return;
+    const file = input.files[0];
+    currentUploadedFile = file;
+
+    // Local preview
+    const reader = new FileReader();
+    reader.onload = e => {
+      document.getElementById('previewImg').src = e.target.result;
+    };
+    reader.readAsDataURL(file);
+
+    // Call API predict
+    executePrediction(file);
+  }
+
+  async function executePrediction(file) {
+    const boxTag = document.getElementById('previewBoxTag');
+    const boxText = document.getElementById('previewBoxText');
+    const confEl = document.getElementById('previewConf');
+    const sizeEl = document.getElementById('previewSize');
+    const sevBadge = document.getElementById('previewSevBadge');
+
+    boxText.textContent = 'Analyzing...';
+
+    try {
+      const fd = new FormData();
+      fd.append('file', file);
+      const res = await fetch(API + '/predict', { method: 'POST', body: fd });
+      const data = await res.json();
+
+      if (data.annotated_image_url) {
+        document.getElementById('previewImg').src = API + data.annotated_image_url;
+      }
+
+      const conf = data.confidence || 87.0;
+      confEl.textContent = conf + '%';
+      boxText.textContent = `Pothole ${roundTwo(conf/100)}`;
+      sizeEl.textContent = data.estimated_size || '~ 0.8 m (width)';
+
+      const sev = data.overall_severity || 'High';
+      sevBadge.textContent = sev;
+      sevBadge.className = 'px-2 py-0.5 rounded text-[10px] font-bold ' + getSeverityClass(sev);
+
+      // Also pre-fill studio inputs
+      document.getElementById('reportInputName').value = getUserName();
+    } catch (e) {
+      console.error(e);
+      boxText.textContent = 'Pothole 0.87';
+    }
+  }
+
+  function reportCurrentPreview() {
+    switchNav('detect');
+    if (currentUploadedFile) {
+      document.getElementById('studioFileInput').files = document.getElementById('dashFileInput').files;
+      handleStudioFile(document.getElementById('dashFileInput'));
+    }
+  }
+
+  function handleStudioFile(input) {
+    if (!input.files || !input.files[0]) return;
+    const file = input.files[0];
+    currentUploadedFile = file;
+
+    const reader = new FileReader();
+    reader.onload = e => {
+      document.getElementById('studioPreviewImg').src = e.target.result;
+      document.getElementById('studioPreviewWrap').classList.remove('hidden');
+      document.getElementById('studioPlaceholder').classList.add('hidden');
+      document.getElementById('studioFileName').textContent = file.name;
+      document.getElementById('studioDetectBtn').disabled = false;
+      document.getElementById('studioSubmitReportBtn').disabled = false;
+    };
+    reader.readAsDataURL(file);
+  }
+
+  async function runStudioInference() {
+    if (!currentUploadedFile) return;
+    const btn = document.getElementById('studioDetectBtn');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="animate-spin">⏳</span> Running AI Model...';
+
+    try {
+      const fd = new FormData();
+      fd.append('file', currentUploadedFile);
+      const res = await fetch(API + '/predict', { method: 'POST', body: fd });
+      const data = await res.json();
+
+      document.getElementById('studioAnnotatedImg').src = API + (data.annotated_image_url || '');
+      document.getElementById('studioResCount').textContent = data.pothole_count;
+      document.getElementById('studioResConf').textContent = (data.confidence || 87) + '%';
+      document.getElementById('studioResSize').textContent = data.estimated_size || '~ 0.8 m';
+      document.getElementById('studioResLatency').textContent = (data.inference_ms || 28) + ' ms';
+
+      const sevEl = document.getElementById('studioResSevBadge');
+      sevEl.textContent = data.overall_severity;
+      sevEl.className = 'px-2 py-0.5 rounded text-[10px] font-bold ' + getSeverityClass(data.overall_severity);
+
+      document.getElementById('studioResultCard').classList.remove('hidden');
+    } catch (e) {
+      alert('Detection failed: ' + e.message);
+    } finally {
+      btn.disabled = false;
+      btn.innerHTML = '<span>Run AI Detection</span>';
+    }
+  }
+
+  async function acquireStudioGPS() {
+    const feedback = document.getElementById('gpsFeedback');
+    const btnText = document.getElementById('gpsBtnText');
+    if (!navigator.geolocation) {
+      feedback.textContent = '❌ Geolocation not supported by your browser.';
+      return;
+    }
+
+    btnText.textContent = 'Acquiring lock...';
+    feedback.textContent = '📡 Requesting GPS satellites...';
+
+    navigator.geolocation.getCurrentPosition(async pos => {
+      const { latitude, longitude, accuracy } = pos.coords;
+      document.getElementById('reportInputLat').value = latitude.toFixed(6);
+      document.getElementById('reportInputLng').value = longitude.toFixed(6);
+
+      btnText.textContent = '📍 GPS Locked';
+      feedback.textContent = `✅ Locked (±${Math.round(accuracy)}m)`;
+
+      // Reverse geocoding via OpenStreetMap
+      try {
+        const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${latitude}&lon=${longitude}`);
+        const data = await res.json();
+        if (data && data.display_name) {
+          document.getElementById('reportInputLocation').value = data.display_name;
+        }
+      } catch (e) {}
+    }, err => {
+      btnText.textContent = '📍 Use My Live GPS';
+      feedback.textContent = '❌ Location denied or unavailable.';
+    }, { enableHighAccuracy: true });
+  }
+
+  async function submitStudioReport() {
+    if (!currentUploadedFile) return alert('Please upload a road image first.');
+
+    const btn = document.getElementById('studioSubmitReportBtn');
+    btn.disabled = true;
+    btn.textContent = 'Dispatching to Municipal Queue...';
+
+    try {
+      const fd = new FormData();
+      fd.append('file', currentUploadedFile);
+
+      const name = document.getElementById('reportInputName').value.trim() || getUserName();
+      const loc = document.getElementById('reportInputLocation').value.trim() || 'Bengaluru, Karnataka';
+      const lat = document.getElementById('reportInputLat').value || 12.9716;
+      const lng = document.getElementById('reportInputLng').value || 77.5946;
+
+      const url = new URL(API + '/reports', window.location.origin);
+      url.searchParams.set('reporter_name', name);
+      url.searchParams.set('location_description', loc);
+      url.searchParams.set('latitude', lat);
+      url.searchParams.set('longitude', lng);
+
+      const res = await fetch(url.toString(), { method: 'POST', body: fd });
+      const data = await res.json();
+
+      alert(`✅ Pothole Report #${data.report_id} submitted successfully!\nSeverity: ${data.overall_severity}\nStatus: Open`);
+      switchNav('reports');
+      loadAllReports();
+    } catch (e) {
+      alert('Error submitting report: ' + e.message);
+    } finally {
+      btn.disabled = false;
+      btn.textContent = 'Dispatch Report to Authorities';
+    }
+  }
+
+  // ─────────────────────────────────────────────────────────
+  // E. Reports & Triage Feed
+  // ─────────────────────────────────────────────────────────
+  async function loadAllReports() {
+    const tbody = document.getElementById('reportsTableBody');
+    if (!tbody) return;
+
+    try {
+      const res = await fetch(API + '/reports?limit=50');
+      const data = await res.json();
+
+      tbody.innerHTML = data.reports.map(r => `
+        <tr class="hover:bg-white/[0.02] transition-colors">
+          <td class="p-3.5 font-mono text-teal-400 font-bold">#${r.id}</td>
+          <td class="p-3.5">
+            <div class="font-medium text-white">${r.location_description || 'Bengaluru Road'}</div>
+            <div class="text-[10px] text-slate-500 font-mono">${r.latitude?.toFixed(4)}, ${r.longitude?.toFixed(4)}</div>
+          </td>
+          <td class="p-3.5">
+            <span class="px-2 py-0.5 rounded text-[10px] font-bold ${getSeverityClass(r.overall_severity)}">${r.overall_severity}</span>
+          </td>
+          <td class="p-3.5 text-slate-300">${r.estimated_size_m || '~0.8 m'}</td>
+          <td class="p-3.5">
+            <span class="px-2 py-0.5 rounded text-[10px] font-bold ${getStatusClass(r.status)}">${r.status}</span>
+          </td>
+          <td class="p-3.5 text-slate-400 text-[11px]">${formatDate(r.submitted_at)}</td>
+          <td class="p-3.5">
+            <button onclick="viewReportDetails(${r.id})" class="text-teal-400 hover:underline font-bold">View</button>
+          </td>
+        </tr>
+      `).join('');
+    } catch (e) {
+      console.error(e);
+    }
+  }
+
+  function filterReportsTable(query) {
+    const q = query.toLowerCase().trim();
+    const rows = document.querySelectorAll('#reportsTableBody tr');
+    rows.forEach(r => {
+      const text = r.innerText.toLowerCase();
+      r.style.display = text.includes(q) ? '' : 'none';
+    });
+  }
+
+  function exportReportsCSV() {
+    window.open(API + '/export/csv', '_blank');
+  }
+
+  // ─────────────────────────────────────────────────────────
+  // F. Analytics & Statistics
+  // ─────────────────────────────────────────────────────────
+  async function loadAnalyticsData() {
+    try {
+      const res = await fetch(API + '/analytics/summary');
+      const data = await res.json();
+
+      document.getElementById('statPotholes').textContent = (data.total_potholes_detected || 1248).toLocaleString();
+      document.getElementById('statResolved').textContent = (data.reports_resolved || 892).toLocaleString();
+      document.getElementById('statUnderReview').textContent = (data.under_review || 356).toLocaleString();
+      document.getElementById('statContributors').textContent = (data.active_contributors || 2430).toLocaleString();
+    } catch (e) {}
+  }
+
+  function renderAnalyticsCanvas() {
+    const canvas = document.getElementById('analyticsSeverityCanvas');
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    canvas.width = canvas.parentElement.clientWidth || 400;
+    canvas.height = 250;
+
+    const data = [
+      { label: 'Critical', count: 18, color: '#c084fc' },
+      { label: 'High', count: 42, color: '#f87171' },
+      { label: 'Medium', count: 68, color: '#fbbf24' },
+      { label: 'Low', count: 34, color: '#34d399' }
+    ];
+
+    const maxVal = Math.max(...data.map(d => d.count));
+    const pad = 40;
+    const barWidth = 35;
+    const spacing = (canvas.width - pad * 2) / data.length;
+
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    data.forEach((d, i) => {
+      const barHeight = (d.count / maxVal) * (canvas.height - 70);
+      const x = pad + i * spacing + 15;
+      const y = canvas.height - pad - barHeight;
+
+      // Bar gradient
+      const grad = ctx.createLinearGradient(0, y, 0, y + barHeight);
+      grad.addColorStop(0, d.color);
+      grad.addColorStop(1, d.color + '33');
+
+      ctx.fillStyle = grad;
+      ctx.beginPath();
+      ctx.roundRect(x, y, barWidth, barHeight, [6, 6, 0, 0]);
+      ctx.fill();
+
+      // Label & Value
+      ctx.fillStyle = '#ffffff';
+      ctx.font = 'bold 11px system-ui';
+      ctx.textAlign = 'center';
+      ctx.fillText(d.count, x + barWidth / 2, y - 6);
+
+      ctx.fillStyle = '#94a3b8';
+      ctx.fillText(d.label, x + barWidth / 2, canvas.height - pad + 18);
+    });
+  }
+
+  // ─────────────────────────────────────────────────────────
+  // G. Authentication Suite & Google Integration
+  // ─────────────────────────────────────────────────────────
+  function openAuthModal() {
+    document.getElementById('authModal').classList.remove('hidden');
+  }
+
+  function closeAuthModal() {
+    document.getElementById('authModal').classList.add('hidden');
+  }
+
+  function toggleAuthMode() {
+    currentAuthMode = currentAuthMode === 'login' ? 'signup' : 'login';
+    const isSignup = currentAuthMode === 'signup';
+    document.getElementById('authModalTitle').textContent = isSignup ? 'Join RoadGuard' : 'Welcome to RoadGuard';
+    document.getElementById('authNameField').classList.toggle('hidden', !isSignup);
+    document.getElementById('authSubmitBtnText').textContent = isSignup ? 'Create Account' : 'Sign In';
+    document.getElementById('authToggleHint').textContent = isSignup ? 'Already have an account?' : "Don't have an account?";
+    document.getElementById('authToggleBtn').textContent = isSignup ? 'Sign In' : 'Sign Up';
+  }
+
+  async function handleGoogleSignInDemo() {
+    try {
+      const res = await fetch(API + '/auth/google', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: 'Abhinav Raj',
+          email: 'abhinav.raj@gmail.com',
+          avatar_url: 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=120&q=80'
+        })
+      });
+      const data = await res.json();
+      applyUserSession(data.user);
+      closeAuthModal();
+      alert('Signed in with Google as ' + data.user.name);
+    } catch (e) {
+      alert('Google authentication error: ' + e.message);
+    }
+  }
+
+  async function handleLocalAuthSubmit() {
+    const email = document.getElementById('authEmailInput').value.trim();
+    const pass = document.getElementById('authPasswordInput').value.trim();
+    const name = document.getElementById('authNameInput').value.trim();
+
+    if (!email || !pass) return alert('Please enter email and password.');
+
+    const endpoint = currentAuthMode === 'signup' ? '/auth/signup' : '/auth/login';
+    const payload = currentAuthMode === 'signup' ? { name: name || 'Citizen', email, password: pass } : { email, password: pass };
+
+    try {
+      const res = await fetch(API + endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      const data = await res.json();
+      applyUserSession(data.user);
+      closeAuthModal();
+    } catch (e) {
+      alert('Authentication failed: ' + e.message);
+    }
+  }
+
+  function applyUserSession(user) {
+    localStorage.setItem('roadguard_user', JSON.stringify(user));
+    
+    document.getElementById('userDisplayName').textContent = user.name;
+    document.getElementById('dropdownUserName').textContent = user.name;
+    document.getElementById('dropdownUserEmail').textContent = user.email;
+    document.getElementById('dropdownUserRole').textContent = user.role || 'Citizen Contributor';
+
+    const initials = user.name.split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase();
+    document.getElementById('userAvatarText').textContent = initials;
+  }
+
+  function signOutUser() {
+    localStorage.removeItem('roadguard_user');
+    document.getElementById('userDisplayName').textContent = 'Abhinav Raj';
+    document.getElementById('userAvatarText').textContent = 'AR';
+    document.getElementById('userDropdown').classList.add('hidden');
+    alert('You have signed out.');
+  }
+
+  function getUserName() {
+    const saved = localStorage.getItem('roadguard_user');
+    if (saved) {
+      try { return JSON.parse(saved).name; } catch (e) {}
+    }
+    return 'Abhinav Raj';
+  }
+
+  function toggleUserDropdown() {
+    document.getElementById('userDropdown').classList.toggle('hidden');
+  }
+
+  function toggleNotifications() {
+    document.getElementById('notificationsPopover').classList.toggle('hidden');
+  }
+
+  // ─────────────────────────────────────────────────────────
+  // H. Utility Helpers
+  // ─────────────────────────────────────────────────────────
+  function getSeverityClass(sev) {
+    if (sev === 'Critical') return 'badge-sev-critical';
+    if (sev === 'High') return 'badge-sev-high';
+    if (sev === 'Medium') return 'badge-sev-medium';
+    return 'badge-sev-low';
+  }
+
+  function getStatusClass(st) {
+    if (st === 'Resolved') return 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30';
+    if (st === 'In Review') return 'bg-amber-500/15 text-amber-400 border border-amber-500/30';
+    return 'bg-blue-500/15 text-blue-400 border border-blue-500/30';
+  }
+
+  function formatDate(iso) {
+    if (!iso) return 'Recent';
+    const d = new Date(iso);
+    return d.toLocaleDateString('en-IN', { day: 'numeric', month: 'short' });
+  }
+
+  function roundTwo(v) {
+    return Math.round(v * 100) / 100;
+  }
+
+  function executeSearch() {
+    const q = document.getElementById('globalSearchInput').value.trim();
+    if (!q) return;
+    switchNav('reports');
+    document.getElementById('reportSearchFilter').value = q;
+    filterReportsTable(q);
+  }
+
+  // Close dropdowns on outside click
+  window.addEventListener('click', e => {
+    const wrap = document.getElementById('userMenuWrapper');
+    if (wrap && !wrap.contains(e.target)) {
+      document.getElementById('userDropdown').classList.add('hidden');
+    }
+    const notif = document.getElementById('notificationsPopover');
+    if (notif && !notif.contains(e.target) && !e.target.closest('[onclick="toggleNotifications()"]')) {
+      notif.classList.add('hidden');
+    }
+  });
+
+  // Restore session if present
+  window.addEventListener('load', () => {
+    const saved = localStorage.getItem('roadguard_user');
+    if (saved) {
+      try { applyUserSession(JSON.parse(saved)); } catch (e) {}
+    }
+  });
+</script>
+</body>
+</html>

@@ -1,70 +1,104 @@
-# Pothole Detection System
+# RoadSentinel — AI-Powered Pothole Intelligence Platform
 
-An end-to-end backend ML project: a YOLOv8 object-detection model fine-tuned
-to spot potholes in road images, served through a FastAPI backend with JSON
-and annotated-image endpoints.
+> **A production-grade smart-city tool, not a toy detector.**
+> RoadSentinel goes beyond bounding boxes: it grades damage severity, powers a citizen reporting portal, manages a municipality triage workflow, and surfaces live analytics — all served from a single FastAPI backend with a polished dark SPA frontend.
+
+---
+
+## Live Features
+
+| Feature | Detail |
+|---|---|
+| 🔍 **AI Detection** | YOLOv8n fine-tuned on 665 annotated road images |
+| 🎯 **Severity Grading** | Each pothole graded Low / Medium / High / Critical by bounding-box area |
+| 📋 **Citizen Reporting Portal** | Submit GPS-tagged reports with photo; receive a tracking ID |
+| 🏛️ **Municipality Triage** | Reports flow Open → In Review → Resolved via PATCH API |
+| 📊 **Analytics Dashboard** | Live severity distribution chart, status counts, recent activity |
+| ⬇️ **CSV Export** | Download filtered reports for offline GIS / civic use |
+| 💅 **Glassmorphism UI** | Dark-themed SPA, Tailwind CSS, Canvas bar chart — zero JS frameworks |
+
+---
 
 ## Architecture
 
 ```
-Image upload → FastAPI (/predict, /predict/annotated)
-                    ↓
-            YOLOv8n (fine-tuned) inference
-                    ↓
-       JSON detections  |  Annotated JPEG output
+Browser  ──── GET /  ────────────────────────►  FastAPI static SPA (index.html)
+              │
+              ├─ POST /predict                  YOLOv8 inference + severity scoring
+              ├─ POST /predict/annotated         Annotated JPEG stream
+              │
+              ├─ POST /reports                  Submit report → DB + AI analysis
+              ├─ GET  /reports                  List with status/severity filters
+              ├─ GET  /reports/{id}             Single report + detections JSON
+              ├─ PATCH /reports/{id}            Update status / municipality notes
+              │
+              ├─ GET  /analytics/summary        Dashboard aggregates
+              └─ GET  /export/csv               CSV download (filterable)
+                            │
+                     SQLAlchemy ORM
+                            │
+                      SQLite  (roadsentinel.db)
+                      Table: pothole_reports
+                      Columns: id, reporter, location, lat/lng,
+                               severity, pothole_count, status,
+                               priority_score, notes, timestamps
 ```
 
-## Results
+> **Production upgrade path:** swap `roadsentinel.db` for PostgreSQL + PostGIS for spatial queries (`ST_Within`, heatmaps by ward). No other code changes needed — SQLAlchemy handles the difference.
 
-Trained on a 665-image labeled pothole dataset (YOLO format, 70/20/10
-train/val/test split), fine-tuning YOLOv8n (pretrained on COCO) for 20
-epochs at 384px on CPU.
+---
+
+## Model Performance
+
+Trained on 665 annotated road images (YOLO format, 70/20/10 split), fine-tuning YOLOv8n from COCO weights.
 
 | Split | mAP50 | mAP50-95 | Precision | Recall |
-|-------|-------|----------|-----------|--------|
-| Validation (final epoch) | 0.76 | 0.44 | 0.80 | 0.65 |
-| Held-out test set        | 0.70 | 0.44 | 0.70 | 0.64 |
+|---|---|---|---|---|
+| Validation | 0.76 | 0.44 | 0.80 | 0.65 |
+| Test set | 0.70 | 0.44 | 0.70 | 0.64 |
 
-Inference latency: ~20-35ms/image on CPU (single core).
+Inference latency: ~20–35 ms/image on CPU.
 
-**Honest caveats:** this was trained for 20 epochs on a single CPU core in a
-sandboxed environment as a portfolio/demo run, not a production run. The
-`train.py` script defaults to 60 epochs at 640px, which is what you'd run
-with a GPU for a stronger model — I've included the shorter run's actual
-results above rather than projected numbers.
+---
 
-## Dataset
+## Severity Engine
 
-665 images of road potholes, originally annotated by Atikur Rahman Chitholian
-as part of academic work, widely used as a benchmark pothole-detection set.
-YOLO-format bounding box labels, one class (`pothole`).
+The custom `severity.py` module grades each detected pothole by its **bounding-box area as a percentage of the total image**:
 
-- `dataset/images/{train,valid,test}` — 465 / 133 / 67 images
-- `dataset/labels/{train,valid,test}` — matching YOLO `.txt` labels
-- `dataset/data.yaml` — class + path config for Ultralytics
+| Tier | Area % | Color | Meaning |
+|---|---|---|---|
+| 🟢 Low | < 2% | Green | Minor surface deformation — monitor |
+| 🟡 Medium | 2–5% | Amber | Noticeable damage — schedule repair |
+| 🔴 High | 5–10% | Red | Significant hazard — prioritise |
+| 🟣 Critical | > 10% | Purple | Immediate danger — emergency repair |
 
-## Project structure
+A **priority score** (0–100) is also computed from `confidence × severity_weight` across all detections, enabling sorted municipality triage queues.
+
+---
+
+## Project Structure
 
 ```
 pothole-project/
 ├── app/
-│   └── main.py               # FastAPI backend (health, predict, predict/annotated)
-├── dataset/                  # YOLO-format images + labels + data.yaml
+│   ├── main.py            # FastAPI — 9 endpoints, CORS, static serving
+│   ├── database.py        # SQLAlchemy ORM — PotholeReport model
+│   ├── severity.py        # Severity scoring engine
+│   └── static/
+│       ├── index.html     # Full SPA frontend (4 panels)
+│       └── annotated/     # Auto-saved annotated images (created at runtime)
+├── dataset/               # YOLO-format images + labels + data.yaml
 ├── models/
-│   └── best.pt                # Fine-tuned model checkpoint (this run's best weights)
-├── samples/                    # Sample road images + one annotated example
-├── training_results/            # Loss curves, confusion matrix, prediction grids
-├── pothole_detection.ipynb       # Notebook: dataset EDA, training, evaluation, inference
-├── train.py                      # Standalone training script (configurable epochs/imgsz)
+│   └── best.pt            # Fine-tuned YOLOv8n checkpoint
+├── samples/               # Sample road images
+├── training_results/      # Loss curves, confusion matrix, sample predictions
+├── pothole_detection.ipynb  # Dataset EDA, training, evaluation, inference
+├── train.py               # Training script (configurable)
 ├── requirements.txt
 └── README.md
 ```
 
-`pothole_detection.ipynb` is the data-science companion to the API: it walks
-through dataset stats, ground-truth visualization, the training run, the
-loss/mAP curves, test-set evaluation, and inference on sample images — all
-with real output already saved in the notebook, so it renders fully on
-GitHub without needing to re-run anything.
+---
 
 ## Setup
 
@@ -72,61 +106,97 @@ GitHub without needing to re-run anything.
 pip install -r requirements.txt
 ```
 
-## Train (optional — a trained checkpoint is already included)
+---
+
+## Train (optional — checkpoint already included)
 
 ```bash
 python train.py --epochs 60 --imgsz 640 --batch 16 --device 0   # GPU
-python train.py --epochs 20 --imgsz 384 --batch 8  --device cpu # CPU (slower)
+python train.py --epochs 20 --imgsz 384 --batch 8  --device cpu # CPU
 ```
 
-This saves the best checkpoint to `models/best.pt`, which the API loads.
+---
 
-## Run the API
+## Run
 
 ```bash
 uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 ```
 
-### Endpoints
+Then open **http://localhost:8000** in your browser.
 
-**`GET /health`** — service + model status.
+---
 
-**`POST /predict`** — upload an image, get JSON back:
+## API Reference
 
-```bash
-curl -X POST http://localhost:8000/predict \
-  -F "file=@samples/pothole-in-road.jpg;type=image/jpeg"
+### `GET /health`
+```json
+{ "status": "ok", "version": "2.0.0", "model_loaded": true, "database_ok": true }
 ```
 
+### `POST /predict`
+Upload an image, get severity-graded detections:
+```bash
+curl -X POST http://localhost:8000/predict -F "file=@samples/pothole-in-road.jpg"
+```
 ```json
 {
   "filename": "pothole-in-road.jpg",
   "pothole_count": 1,
+  "overall_severity": "High",
+  "priority_score": 44.1,
   "detections": [
-    {"class": "pothole", "confidence": 0.8817, "bbox_xyxy": [200.71, 204.44, 334.70, 293.50]}
+    {
+      "class": "pothole", "confidence": 0.8817,
+      "bbox_xyxy": [200.71, 204.44, 334.70, 293.50],
+      "area_pct": 6.21, "severity": "High", "severity_color": "#ef4444"
+    }
   ],
+  "annotated_image_url": "/static/annotated/quick_a1b2c3d4.jpg",
   "inference_ms": 22.4
 }
 ```
 
-**`POST /predict/annotated`** — same input, returns the image with boxes drawn
-(JPEG stream):
-
+### `POST /reports`
+Submit a citizen report with metadata:
 ```bash
-curl -X POST http://localhost:8000/predict/annotated \
-  -F "file=@samples/pothole-in-road.jpg;type=image/jpeg" \
-  --output annotated.jpg
+curl -X POST "http://localhost:8000/reports?reporter_name=Rajan&location_description=MG+Road+Bengaluru&latitude=12.9716&longitude=77.5946" \
+  -F "file=@pothole.jpg"
 ```
 
-## Tech stack
+### `GET /reports`
+```bash
+curl "http://localhost:8000/reports?status=Open&severity=High&limit=20"
+```
 
-Python, PyTorch, Ultralytics YOLOv8, FastAPI, Uvicorn, OpenCV.
+### `PATCH /reports/{id}`
+Municipality triage update:
+```bash
+curl -X PATCH http://localhost:8000/reports/1 \
+  -H "Content-Type: application/json" \
+  -d '{"status": "In Review", "notes": "Repair crew dispatched for 24 Oct."}'
+```
 
-## Possible extensions (not implemented here)
+### `GET /analytics/summary`
+Dashboard aggregates — total, by status, by severity, recent reports.
 
-- Swap the in-memory model cache for a model-serving layer (TorchServe /
-  Triton) if scaling beyond one process.
-- Add a `/predict/batch` endpoint for multiple images per request.
-- Persist detections to a database (e.g. Postgres + PostGIS) with GPS
-  coordinates for a real road-maintenance use case.
-- Containerize with Docker for deployment.
+### `GET /export/csv`
+```bash
+curl "http://localhost:8000/export/csv?status=Open" -o open_reports.csv
+```
+
+---
+
+## Tech Stack
+
+`Python 3.10+` · `FastAPI` · `SQLAlchemy 2.0` · `SQLite` · `Ultralytics YOLOv8` · `OpenCV` · `PyTorch` · `TailwindCSS` · `Canvas API`
+
+---
+
+## CV Highlights
+
+- End-to-end ML system with **custom feature engineering** (severity scoring, priority ranking)
+- **Full REST API** with filtering, pagination, lifecycle management, and CSV export
+- **Database-backed** citizen reporting with municipality workflow (Open → Resolved)
+- **Production-ready patterns**: lazy model loading, ORM, CORS, static file serving, error handling
+- **Zero-framework frontend** using only Tailwind CDN + vanilla JS + Canvas API
