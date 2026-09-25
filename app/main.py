@@ -21,6 +21,11 @@ Run:
   uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 """
 
+
+import os
+from dotenv import load_dotenv
+from google.auth.transport import requests as google_requests
+from google.oauth2 import id_token
 import csv
 import io
 import json
@@ -49,11 +54,13 @@ from app.severity import score_detections
 # Config
 # ---------------------------------------------------------------------------
 BASE_DIR = Path(__file__).resolve().parent.parent
+load_dotenv(BASE_DIR / ".env")
 MODEL_PATH = BASE_DIR / "models" / "best.pt"
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 ANNOTATED_DIR = STATIC_DIR / "annotated"
 CONF_THRESHOLD = 0.25
 IOU_THRESHOLD = 0.45
+GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID")
 ALLOWED_CONTENT_TYPES = {"image/jpeg", "image/png", "image/webp", "image/bmp"}
 
 # Ensure directories exist
@@ -203,18 +210,42 @@ def health():
 
 
 # ---------------------------------------------------------------------------
-# Routes — Authentication
+# Authentication
 # ---------------------------------------------------------------------------
+
+class LoginRequest(BaseModel):
+    email: str
+    password: str
+
+
+class SignupRequest(BaseModel):
+    name: str
+    email: str
+    password: str
+
+
+class GoogleAuthRequest(BaseModel):
+    credential: str
+
+
 @app.post("/auth/login", tags=["Auth"])
 def login(req: LoginRequest, db: Session = Depends(get_db)):
     email = req.email.lower().strip()
     user = db.query(User).filter(User.email == email).first()
+
     if not user or not user.password_hash:
-        raise HTTPException(status_code=401, detail="Invalid email or password.")
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid email or password."
+        )
+
     try:
         _password_hasher.verify(user.password_hash, req.password)
     except VerificationError:
-        raise HTTPException(status_code=401, detail="Invalid email or password.")
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid email or password."
+        )
 
     return {
         "status": "success",
@@ -227,13 +258,26 @@ def login(req: LoginRequest, db: Session = Depends(get_db)):
 def signup(req: SignupRequest, db: Session = Depends(get_db)):
     name = req.name.strip()
     email = req.email.lower().strip()
+
     if not name:
-        raise HTTPException(status_code=422, detail="Name is required.")
+        raise HTTPException(
+            status_code=422,
+            detail="Name is required."
+        )
+
     if len(req.password) < 8:
-        raise HTTPException(status_code=422, detail="Password must be at least 8 characters.")
+        raise HTTPException(
+            status_code=422,
+            detail="Password must be at least 8 characters."
+        )
+
     existing = db.query(User).filter(User.email == email).first()
+
     if existing:
-        raise HTTPException(status_code=409, detail="An account with this email already exists.")
+        raise HTTPException(
+            status_code=409,
+            detail="An account with this email already exists."
+        )
 
     user = User(
         name=name,
@@ -242,6 +286,7 @@ def signup(req: SignupRequest, db: Session = Depends(get_db)):
         provider="local",
         role="Citizen",
     )
+
     db.add(user)
     db.commit()
     db.refresh(user)
@@ -253,11 +298,87 @@ def signup(req: SignupRequest, db: Session = Depends(get_db)):
     }
 
 
+# ---------------------------------------------------------------------------
+# Google authentication
+# ---------------------------------------------------------------------------
+
 @app.post("/auth/google", tags=["Auth"])
-def google_auth():
-    raise HTTPException(status_code=501, detail="Google sign-in has not been configured.")
+def google_auth(
+    req: GoogleAuthRequest,
+    db: Session = Depends(get_db)
+):
+    if not GOOGLE_CLIENT_ID:
+        raise HTTPException(
+            status_code=500,
+            detail="Google authentication is not configured on the server."
+        )
 
+    try:
+        google_user = id_token.verify_oauth2_token(
+            req.credential,
+            google_requests.Request(),
+            GOOGLE_CLIENT_ID,
+        )
+    except ValueError:
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid or expired Google credential."
+        )
 
+    if google_user.get("iss") not in {
+        "accounts.google.com",
+        "https://accounts.google.com",
+    }:
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid Google token issuer."
+        )
+
+    google_sub = google_user.get("sub")
+    email = google_user.get("email")
+    email_verified = google_user.get("email_verified", False)
+
+    if not google_sub or not email:
+        raise HTTPException(
+            status_code=401,
+            detail="Google account information is incomplete."
+        )
+
+    if not email_verified:
+        raise HTTPException(
+            status_code=401,
+            detail="Google email address is not verified."
+        )
+
+    name = google_user.get("name") or email.split("@")[0]
+    picture = google_user.get("picture")
+    email = email.lower().strip()
+
+    user = db.query(User).filter(User.email == email).first()
+
+    if user:
+        user.name = name
+        user.avatar_url = picture
+        user.provider = "google"
+    else:
+        user = User(
+            name=name,
+            email=email,
+            avatar_url=picture,
+            provider="google",
+            password_hash=None,
+            role="Citizen",
+        )
+        db.add(user)
+
+    db.commit()
+    db.refresh(user)
+
+    return {
+        "status": "success",
+        "message": "Google sign-in successful",
+        "user": user.to_dict(),
+    }
 # ---------------------------------------------------------------------------
 # Routes — AI Detection
 # ---------------------------------------------------------------------------

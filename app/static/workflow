@@ -1,0 +1,28 @@
+User clicks "Sign in with Google"
+          ↓
+Google authenticates user
+          ↓
+Google gives frontend an ID token
+          ↓
+Frontend sends token to /auth/google
+          ↓
+FastAPI verifies token with Google
+          ↓
+FastAPI creates/finds user in SQLite
+          ↓
+Backend returns user information
+          ↓
+Frontend displays logged-in user
+
+
+             Authentication
+                   │
+          ┌────────┴────────┐
+          ↓                 ↓
+   Email + Password       Google
+          ↓                 ↓
+   /auth/login          /auth/google
+          │                 │
+          └────────┬────────┘
+                   ↓
+              User account
