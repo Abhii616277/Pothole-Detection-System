@@ -52,12 +52,14 @@ Browser  ──── GET /  ─────────────────
 
 Trained on 665 annotated road images (YOLO format, 70/20/10 split), fine-tuning YOLOv8n from COCO weights.
 
-| Split | mAP50 | mAP50-95 | Precision | Recall |
+| Reported split | mAP50 | mAP50-95 | Precision | Recall |
 |---|---|---|---|---|
 | Validation | 0.76 | 0.44 | 0.80 | 0.65 |
 | Test set | 0.70 | 0.44 | 0.70 | 0.64 |
 
 Inference latency: ~20–35 ms/image on CPU.
+
+These are reported evaluation metrics for the listed dataset split, not a guarantee of accuracy on new road images. The confidence shown for an individual detection is the model score, not a measured precision rate.
 
 ---
 
@@ -89,7 +91,8 @@ pothole-project/
 │       └── annotated/     # Auto-saved annotated images (created at runtime)
 ├── dataset/               # YOLO-format images + labels + data.yaml
 ├── models/
-│   └── best.pt            # Fine-tuned YOLOv8n checkpoint
+│   ├── best.onnx          # ONNX model used by the API
+│   └── best.pt            # Training checkpoint (not loaded by the API)
 ├── samples/               # Sample road images
 ├── training_results/      # Loss curves, confusion matrix, sample predictions
 ├── pothole_detection.ipynb  # Dataset EDA, training, evaluation, inference
@@ -108,7 +111,7 @@ pip install -r requirements.txt
 
 ---
 
-## Train (optional — checkpoint already included)
+## Train (optional)
 
 ```bash
 python train.py --epochs 60 --imgsz 640 --batch 16 --device 0   # GPU
@@ -123,7 +126,7 @@ python train.py --epochs 20 --imgsz 384 --batch 8  --device cpu # CPU
 uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 ```
 
-Then open **http://localhost:8000** in your browser.
+Then open **http://localhost:8000** in your browser. The API accepts image uploads up to 4 MB. SQLite data and uploaded images persist locally; on Vercel, the function filesystem is ephemeral, so configure a managed database and object storage for durable data. See [API_SETUP.md](API_SETUP.md).
 
 ## API and service setup
 

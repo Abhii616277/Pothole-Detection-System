@@ -19,11 +19,13 @@ from sqlalchemy import (
     create_engine,
 )
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
+from dotenv import load_dotenv
 
 # ---------------------------------------------------------------------------
 # Engine setup
 # ---------------------------------------------------------------------------
 BASE_DIR = Path(__file__).resolve().parent.parent
+load_dotenv(BASE_DIR / ".env")
 if os.getenv("DATABASE_URL"):
     DATABASE_URL = os.environ["DATABASE_URL"]
 elif os.getenv("VERCEL") == "1":

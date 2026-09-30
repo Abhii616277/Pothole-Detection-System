@@ -20,19 +20,14 @@ Endpoints:
 Run:
   uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 """
-from datetime import datetime, timezone, timedelta
-from jose import JWTError, jwt
-from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 import os
 from dotenv import load_dotenv
-from google.auth.transport import requests as google_requests
-from google.oauth2 import id_token
 import csv
 import io
 import json
 import time
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import List, Optional
 
@@ -47,11 +42,12 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 import onnxruntime as ort
-
-from app.severity import score_detections
-from datetime import datetime, timezone, timedelta
 from jose import JWTError, jwt
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from google.auth.transport import requests as google_requests
+from google.oauth2 import id_token
+
+from app.severity import score_detections
 
 # ---------------------------------------------------------------------------
 # Config
@@ -67,6 +63,7 @@ CONF_THRESHOLD = 0.25
 IOU_THRESHOLD = 0.45
 GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID")
 ALLOWED_CONTENT_TYPES = {"image/jpeg", "image/png", "image/webp", "image/bmp"}
+MAX_UPLOAD_BYTES = 4 * 1024 * 1024
 JWT_SECRET_KEY = os.getenv("JWT_SECRET_KEY")
 JWT_ALGORITHM = "HS256"
 JWT_EXPIRE_MINUTES = 50
@@ -200,6 +197,14 @@ def validate_upload(file: UploadFile):
         )
 
 
+async def read_upload(file: UploadFile) -> bytes:
+    """Read an image while enforcing a payload limit below Vercel's body cap."""
+    data = await file.read(MAX_UPLOAD_BYTES + 1)
+    if len(data) > MAX_UPLOAD_BYTES:
+        raise HTTPException(status_code=413, detail="Image must be 4 MB or smaller.")
+    return data
+
+
 def save_annotated(img_bgr: np.ndarray, prefix: str = "") -> str:
     """Save annotated image to static/annotated/ and return relative URL."""
     name = f"{prefix}_{uuid.uuid4().hex[:8]}.jpg"
@@ -264,17 +269,6 @@ def run_detection(img: np.ndarray) -> tuple[list[dict], np.ndarray, float]:
 # ---------------------------------------------------------------------------
 # Pydantic Schemas
 # ---------------------------------------------------------------------------
-class LoginRequest(BaseModel):
-    email: str
-    password: str
-
-
-class SignupRequest(BaseModel):
-    name: str
-    email: str
-    password: str
-
-
 class ReportUpdateRequest(BaseModel):
     status: Optional[str] = None   # Open | In Review | Resolved
     notes: Optional[str] = None
@@ -497,7 +491,7 @@ async def predict(file: UploadFile = File(...)):
     Returns JSON with detections, confidence %, estimated physical size, and severity.
     """
     validate_upload(file)
-    file_bytes = await file.read()
+    file_bytes = await read_upload(file)
     img = read_image(file_bytes)
     h, w = img.shape[:2]
 
@@ -538,7 +532,7 @@ async def predict(file: UploadFile = File(...)):
 async def predict_annotated(file: UploadFile = File(...)):
     """Return the uploaded image with bounding boxes drawn as JPEG stream."""
     validate_upload(file)
-    file_bytes = await file.read()
+    file_bytes = await read_upload(file)
     img = read_image(file_bytes)
 
     _, annotated, _ = run_detection(img)
@@ -569,7 +563,7 @@ async def submit_report(
     Automatically executes YOLOv8 AI detection, grades severity, and stores GPS data.
     """
     validate_upload(file)
-    file_bytes = await file.read()
+    file_bytes = await read_upload(file)
     img = read_image(file_bytes)
     h, w = img.shape[:2]
 
@@ -782,7 +776,7 @@ def serve_frontend():
     index = STATIC_DIR / "index.html"
     if index.exists():
         return FileResponse(str(index))
-    return JSONResponse({"message": "RoadGuard API is running. Visit /api/docs"})
+    return JSONResponse({"message": "RoadGuard API is running. Visit /docs"})
 
 
 if __name__ == "__main__":

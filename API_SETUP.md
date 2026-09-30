@@ -2,14 +2,14 @@
 
 ## What is already local
 
-The detection, report, analytics, and CSV endpoints are served by this FastAPI app. They do not need third-party API keys. The detector uses `models/best.pt`; report data is stored in `roadsentinel.db` (SQLite). Start the backend with:
+The detection, report, analytics, and CSV endpoints are served by this FastAPI app. They do not need third-party API keys. The detector uses `models/best.onnx`; local report data is stored in `roadsentinel.db` (SQLite), and uploaded images are written under `app/static/annotated/`. Start the backend with:
 
 ```powershell
 pip install -r requirements.txt
 uvicorn app.main:app --reload
 ```
 
-Open `http://localhost:8000` for the frontend and `http://localhost:8000/api/docs` for the API. The frontend currently uses `const API = ''`, which means same-origin requests. If you host the frontend separately, set `API` to the backend origin and configure FastAPI CORS for that exact frontend origin.
+Open `http://localhost:8000` for the frontend and `http://localhost:8000/docs` for the API. Image uploads are limited to 4 MB to stay below Vercel's 4.5 MB request-body ceiling (multipart form overhead is additional). The frontend currently uses `const API = ''`, which means same-origin requests. If you host the frontend separately, set `API` to the backend origin and configure FastAPI CORS for that exact frontend origin.
 
 ## External services used by the frontend
 
@@ -28,4 +28,4 @@ Local signup now hashes passwords with Argon2 and login verifies the hash. Signu
 
 - Email/SMS notifications: the UI currently has no notification delivery API. Choose a provider, store its secret on the backend, and add a backend notification endpoint or background job.
 - Municipal dispatch: report status updates are local database changes through `PATCH /reports/{id}`. No city or municipal system is connected; obtain its API documentation and credentials from the municipality before implementing a connector.
-- Production database: SQLite is configured for local use. For a deployed multi-user service, configure PostgreSQL (and PostGIS if spatial queries are needed) with a server-side `DATABASE_URL` environment variable.
+- Persistence: local SQLite and image files persist on your machine. Vercel's function filesystem is ephemeral, so deployed data and images need a managed database (`DATABASE_URL`) and object storage; `/tmp/roadsentinel.db` is only a temporary fallback. The `vercel.json` routes requests to the FastAPI app.
