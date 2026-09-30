@@ -46,7 +46,7 @@ from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
-from ultralytics import YOLO
+import onnxruntime as ort
 
 from app.database import PotholeReport, User, get_db, init_db
 from app.severity import score_detections
@@ -59,7 +59,7 @@ from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 # ---------------------------------------------------------------------------
 BASE_DIR = Path(__file__).resolve().parent.parent
 load_dotenv(BASE_DIR / ".env")
-MODEL_PATH = BASE_DIR / "models" / "best.pt"
+MODEL_PATH = BASE_DIR / "models" / "best.onnx"
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 ANNOTATED_DIR = STATIC_DIR / "annotated"
 CONF_THRESHOLD = 0.25
@@ -157,20 +157,26 @@ app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 # ---------------------------------------------------------------------------
 # Model Management
 # ---------------------------------------------------------------------------
-_model: YOLO | None = None
+_model: ort.InferenceSession | None = None
 _password_hasher = PasswordHasher()
 
 
-def get_model() -> YOLO:
-    """Lazy-load and cache the YOLOv8 model."""
+def get_model() -> ort.InferenceSession:
+    """Lazy-load and cache the CPU ONNX model."""
     global _model
     if _model is None:
         if not MODEL_PATH.exists():
             raise RuntimeError(
-                f"Model weights not found at {MODEL_PATH}. "
-                "Train the model first with train.py."
+                f"ONNX model not found at {MODEL_PATH}. "
+                "Export models/best.pt to ONNX before deploying."
             )
-        _model = YOLO(str(MODEL_PATH))
+        session_options = ort.SessionOptions()
+        session_options.intra_op_num_threads = max(1, min(4, os.cpu_count() or 1))
+        _model = ort.InferenceSession(
+            str(MODEL_PATH),
+            sess_options=session_options,
+            providers=["CPUExecutionProvider"],
+        )
     return _model
 
 
@@ -202,23 +208,55 @@ def save_annotated(img_bgr: np.ndarray, prefix: str = "") -> str:
 
 
 def run_detection(img: np.ndarray) -> tuple[list[dict], np.ndarray, float]:
-    """Run YOLO inference. Returns (raw_detections, annotated_img, latency_ms)."""
+    """Run YOLO ONNX inference and NMS. Returns detections, image, latency."""
     model = get_model()
+    img_h, img_w = img.shape[:2]
+    input_size = 640
+    scale = min(input_size / img_w, input_size / img_h)
+    resized_w, resized_h = round(img_w * scale), round(img_h * scale)
+    resized = cv2.resize(img, (resized_w, resized_h), interpolation=cv2.INTER_LINEAR)
+    pad_w, pad_h = input_size - resized_w, input_size - resized_h
+    left, top = round(pad_w / 2 - 0.1), round(pad_h / 2 - 0.1)
+    right, bottom = pad_w - left, pad_h - top
+    padded = cv2.copyMakeBorder(
+        resized, top, bottom, left, right, cv2.BORDER_CONSTANT, value=(114, 114, 114)
+    )
+    input_tensor = padded[:, :, ::-1].transpose(2, 0, 1)[None].astype(np.float32) / 255.0
     t0 = time.time()
-    results = model.predict(img, conf=CONF_THRESHOLD, iou=IOU_THRESHOLD, verbose=False)[0]
+    output = model.run(None, {model.get_inputs()[0].name: input_tensor})[0]
     latency_ms = round((time.time() - t0) * 1000, 1)
 
+    predictions = output[0].T
+    scores = predictions[:, 4]
+    candidate_indices = np.flatnonzero(scores >= CONF_THRESHOLD)
+    boxes = []
+    confidences = []
+    coordinates = []
+    for index in candidate_indices:
+        cx, cy, width, height = predictions[index, :4]
+        x1 = (cx - width / 2 - left) / scale
+        y1 = (cy - height / 2 - top) / scale
+        x2 = (cx + width / 2 - left) / scale
+        y2 = (cy + height / 2 - top) / scale
+        x1, x2 = np.clip([x1, x2], 0, img_w)
+        y1, y2 = np.clip([y1, y2], 0, img_h)
+        coordinates.append([float(x1), float(y1), float(x2), float(y2)])
+        boxes.append([float(x1), float(y1), float(x2 - x1), float(y2 - y1)])
+        confidences.append(float(scores[index]))
+
+    kept = cv2.dnn.NMSBoxes(boxes, confidences, CONF_THRESHOLD, IOU_THRESHOLD)
     raw = []
-    for box in results.boxes:
-        x1, y1, x2, y2 = [round(v, 2) for v in box.xyxy[0].tolist()]
-        raw.append(
-            {
-                "class": model.names[int(box.cls[0])],
-                "confidence": round(float(box.conf[0]), 4),
-                "bbox_xyxy": [x1, y1, x2, y2],
-            }
+    annotated = img.copy()
+    for kept_index in np.asarray(kept).reshape(-1):
+        x1, y1, x2, y2 = [round(value, 2) for value in coordinates[int(kept_index)]]
+        confidence = round(confidences[int(kept_index)], 4)
+        raw.append({"class": "pothole", "confidence": confidence, "bbox_xyxy": [x1, y1, x2, y2]})
+        point1, point2 = (round(x1), round(y1)), (round(x2), round(y2))
+        cv2.rectangle(annotated, point1, point2, (16, 185, 129), 2)
+        cv2.putText(
+            annotated, f"pothole {confidence:.2f}", (point1[0], max(point1[1] - 8, 16)),
+            cv2.FONT_HERSHEY_SIMPLEX, 0.55, (16, 185, 129), 2,
         )
-    annotated = results.plot()
     return raw, annotated, latency_ms
 
 

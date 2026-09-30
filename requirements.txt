@@ -1,6 +1,5 @@
-# Runtime dependencies only. Training and notebook tools belong in a separate
-# development environment, not in the Vercel serverless bundle.
---extra-index-url https://download.pytorch.org/whl/cpu
+# Runtime dependencies only. The model runs through ONNX Runtime so the
+# serverless function does not need PyTorch or CUDA libraries.
 
 fastapi>=0.115,<1
 uvicorn[standard]>=0.30,<1
@@ -11,9 +10,6 @@ argon2-cffi>=23,<26
 python-jose[cryptography]>=3.3,<4
 google-auth>=2.30,<3
 
-# Force CPU-only builds; the default PyPI builds pull CUDA/NVIDIA packages.
-torch==2.5.1+cpu
-torchvision==0.20.1+cpu
-ultralytics==8.3.40
+onnxruntime>=1.19,<2
 numpy<2
-opencv-python>=4.10,<5
+opencv-python-headless>=4.10,<5
