@@ -20,8 +20,9 @@ Endpoints:
 Run:
   uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 """
-
-
+from datetime import datetime, timezone, timedelta
+from jose import JWTError, jwt
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 import os
 from dotenv import load_dotenv
 from google.auth.transport import requests as google_requests
@@ -49,6 +50,9 @@ from ultralytics import YOLO
 
 from app.database import PotholeReport, User, get_db, init_db
 from app.severity import score_detections
+from datetime import datetime, timezone, timedelta
+from jose import JWTError, jwt
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 
 # ---------------------------------------------------------------------------
 # Config
@@ -62,11 +66,69 @@ CONF_THRESHOLD = 0.25
 IOU_THRESHOLD = 0.45
 GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID")
 ALLOWED_CONTENT_TYPES = {"image/jpeg", "image/png", "image/webp", "image/bmp"}
+JWT_SECRET_KEY = os.getenv("JWT_SECRET_KEY")
+JWT_ALGORITHM = "HS256"
+JWT_EXPIRE_MINUTES = 50
+security = HTTPBearer()
 
+# ---------------------------------------------------------------------------
+#JWT CODE 
+def create_access_token(user:User):
+    expire = datetime.now(timezone.utc)+timedelta(
+        minutes=JWT_EXPIRE_MINUTES
+    )
+    payload_id = {
+        "Id" : str(user.id),
+        "Email" : user.email,
+        "Role" : user.role,
+        "exp" : expire,
+    }
+    return jwt.encode(
+        payload_id,
+        JWT_SECRET_KEY,
+        algorithm=JWT_ALGORITHM
+    )
 # Ensure directories exist
 STATIC_DIR.mkdir(exist_ok=True)
 ANNOTATED_DIR.mkdir(exist_ok=True)
+#-----------------------------------------------------------------------------------------
+#JWT VALIDATION - VERIFY ACCESS TOKEN 
+def get_current_user(
+    credentials: HTTPAuthorizationCredentials = Depends(security),
+    db: Session = Depends(get_db),
+):
+    token = credentials.credentials
 
+    try:
+        payload = jwt.decode(
+            token,
+            JWT_SECRET_KEY,
+            algorithms=[JWT_ALGORITHM],
+        )
+
+        user_id = payload.get("Id")
+
+        if not user_id:
+            raise HTTPException(
+                status_code=401,
+                detail="Invalid authentication token.",
+            )
+
+    except (JWTError, ValueError):
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid or expired authentication token.",
+        )
+
+    user = db.query(User).filter(User.id == int(user_id)).first()
+
+    if not user:
+        raise HTTPException(
+            status_code=401,
+            detail="User no longer exists.",
+        )
+
+    return user
 # ---------------------------------------------------------------------------
 # App
 # ---------------------------------------------------------------------------
@@ -247,11 +309,14 @@ def login(req: LoginRequest, db: Session = Depends(get_db)):
             detail="Invalid email or password."
         )
 
+    access_token = create_access_token(user)
     return {
-        "status": "success",
-        "message": "Logged in successfully",
-        "user": user.to_dict(),
-    }
+    "status": "success",
+    "message": "Logged in successfully",
+    "access_token": access_token,
+    "token_type": "bearer",
+    "user": user.to_dict(),
+}
 
 
 @app.post("/auth/signup", tags=["Auth"])
@@ -290,12 +355,14 @@ def signup(req: SignupRequest, db: Session = Depends(get_db)):
     db.add(user)
     db.commit()
     db.refresh(user)
-
+    access_token = create_access_token(user)
     return {
-        "status": "success",
-        "message": "Account created successfully",
-        "user": user.to_dict(),
-    }
+    "status": "success",
+    "message": "Account created successfully",
+    "access_token": access_token,
+    "token_type": "bearer",
+    "user": user.to_dict(),
+}
 
 
 # ---------------------------------------------------------------------------
@@ -377,6 +444,8 @@ def google_auth(
     return {
         "status": "success",
         "message": "Google sign-in successful",
+        "access_token": create_access_token(user),
+        "token_type": "bearer",
         "user": user.to_dict(),
     }
 # ---------------------------------------------------------------------------
@@ -454,6 +523,7 @@ async def submit_report(
     latitude: Optional[float] = None,
     longitude: Optional[float] = None,
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
     """
     Submit a citizen pothole report.
@@ -487,8 +557,8 @@ async def submit_report(
     orig_path.write_bytes(file_bytes)
 
     report = PotholeReport(
-        reporter_name=reporter_name or "Citizen Reporter",
-        reporter_email=reporter_email,
+        reporter_name=current_user.name,
+        reporter_email=current_user.email,
         location_description=location_description,
         latitude=latitude,
         longitude=longitude,
@@ -679,3 +749,12 @@ def serve_frontend():
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("app.main:app", host="0.0.0.0", port=8000, reload=True)
+
+
+#TESTING 
+@app.get("/auth/me", tags=["Auth"])
+def get_me(current_user: User = Depends(get_current_user)):
+    return {
+        "status": "success",
+        "user": current_user.to_dict(),
+    }
