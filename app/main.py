@@ -48,7 +48,6 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 import onnxruntime as ort
 
-from app.database import PotholeReport, User, get_db, init_db
 from app.severity import score_detections
 from datetime import datetime, timezone, timedelta
 from jose import JWTError, jwt
@@ -59,6 +58,8 @@ from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 # ---------------------------------------------------------------------------
 BASE_DIR = Path(__file__).resolve().parent.parent
 load_dotenv(BASE_DIR / ".env")
+from app.database import PotholeReport, User, get_db, init_db
+
 MODEL_PATH = BASE_DIR / "models" / "best.onnx"
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 ANNOTATED_DIR = STATIC_DIR / "annotated"

@@ -6,6 +6,7 @@ Clean, production schema without sample or mock seed data.
 """
 
 from datetime import datetime, timezone
+import os
 from pathlib import Path
 
 from sqlalchemy import (
@@ -23,11 +24,18 @@ from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 # Engine setup
 # ---------------------------------------------------------------------------
 BASE_DIR = Path(__file__).resolve().parent.parent
-DATABASE_URL = f"sqlite:///{BASE_DIR / 'roadsentinel.db'}"
+if os.getenv("DATABASE_URL"):
+    DATABASE_URL = os.environ["DATABASE_URL"]
+elif os.getenv("VERCEL") == "1":
+    # Vercel's deployed source is read-only. /tmp is writable but ephemeral;
+    # configure DATABASE_URL to a managed database for persistent production data.
+    DATABASE_URL = "sqlite:////tmp/roadsentinel.db"
+else:
+    DATABASE_URL = f"sqlite:///{BASE_DIR / 'roadsentinel.db'}"
 
 engine = create_engine(
     DATABASE_URL,
-    connect_args={"check_same_thread": False},  # SQLite-specific
+    connect_args={"check_same_thread": False} if DATABASE_URL.startswith("sqlite") else {},
 )
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
