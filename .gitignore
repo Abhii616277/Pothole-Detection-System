@@ -14,6 +14,7 @@ venv/
 runs/
 *.pt
 *.onnx
+!models/best.pt
 
 # Dataset
 dataset/images/
