@@ -21,6 +21,7 @@ Run:
   uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 """
 import os
+import logging
 from dotenv import load_dotenv
 import csv
 import io
@@ -68,6 +69,8 @@ JWT_SECRET_KEY = os.getenv("JWT_SECRET_KEY")
 JWT_ALGORITHM = "HS256"
 JWT_EXPIRE_MINUTES = 50
 security = HTTPBearer()
+logger = logging.getLogger(__name__)
+DB_INIT_ERROR: Exception | None = None
 
 # ---------------------------------------------------------------------------
 #JWT CODE 
@@ -279,7 +282,15 @@ class ReportUpdateRequest(BaseModel):
 # ---------------------------------------------------------------------------
 @app.on_event("startup")
 def on_startup():
-    init_db()
+    global DB_INIT_ERROR
+    try:
+        init_db()
+        DB_INIT_ERROR = None
+    except Exception as exc:
+        # Keep non-database routes (including the frontend) available. The
+        # exception and traceback remain available in Vercel function logs.
+        DB_INIT_ERROR = exc
+        logger.exception("Database initialization failed")
 
 
 # ---------------------------------------------------------------------------
@@ -288,19 +299,21 @@ def on_startup():
 @app.get("/health", tags=["System"])
 def health():
     from app.database import engine
+    db_ok = DB_INIT_ERROR is None
     try:
         with engine.connect() as conn:
-            db_ok = True
+            conn.exec_driver_sql("SELECT 1")
     except Exception:
         db_ok = False
 
     return {
-        "status": "ok",
+        "status": "ok" if db_ok else "degraded",
         "app": "RoadGuard",
         "version": "2.5.0",
         "model_loaded": MODEL_PATH.exists(),
         "model_path": str(MODEL_PATH),
         "database_ok": db_ok,
+        "database_init_error": type(DB_INIT_ERROR).__name__ if DB_INIT_ERROR else None,
     }
 
 
