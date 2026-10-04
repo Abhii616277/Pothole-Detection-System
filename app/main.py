@@ -784,12 +784,22 @@ def export_csv(
 # ---------------------------------------------------------------------------
 # Frontend Root
 # ---------------------------------------------------------------------------
-@app.get("/", include_in_schema=False)
-def serve_frontend():
+def serve_frontend_file():
     index = STATIC_DIR / "index.html"
     if index.exists():
         return FileResponse(str(index))
     return JSONResponse({"message": "RoadGuard API is running. Visit /docs"})
+
+
+@app.get("/", include_in_schema=False)
+def serve_frontend():
+    return serve_frontend_file()
+
+
+@app.get("/dashboard", include_in_schema=False)
+@app.get("/dashboard/{dashboard_path:path}", include_in_schema=False)
+def serve_dashboard(dashboard_path: str = ""):
+    return serve_frontend_file()
 
 
 if __name__ == "__main__":
