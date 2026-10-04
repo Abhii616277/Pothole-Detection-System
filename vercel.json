@@ -4,36 +4,12 @@
     "app": {
       "root": ".",
       "framework": "fastapi",
-      "entrypoint": "app.main:app",
-      "excludeFiles": [
-        "**/*.dist-info/licenses/**",
-        "dataset/**",
-        "app/static/annotated/**",
-        "samples/**",
-        "training_results/**",
-        "models/*.pt",
-        "pothole_detection.ipynb",
-        "roadsentinel.db",
-        "structure.txt",
-        "train.py"
-      ]
+      "entrypoint": "app/main.py"
     },
     "dashboard": {
       "root": ".",
       "framework": "fastapi",
-      "entrypoint": "app.main:app",
-      "excludeFiles": [
-        "**/*.dist-info/licenses/**",
-        "dataset/**",
-        "app/static/annotated/**",
-        "samples/**",
-        "training_results/**",
-        "models/*.pt",
-        "pothole_detection.ipynb",
-        "roadsentinel.db",
-        "structure.txt",
-        "train.py"
-      ]
+      "entrypoint": "app/main.py"
     }
   },
   "rewrites": [

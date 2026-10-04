@@ -32,7 +32,6 @@ from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import List, Optional
 
-import cv2
 import numpy as np
 from argon2 import PasswordHasher
 from argon2.exceptions import VerificationError
@@ -40,6 +39,7 @@ from fastapi import Depends, FastAPI, File, HTTPException, Query, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
+from PIL import Image, ImageDraw
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 import onnxruntime as ort
@@ -185,11 +185,11 @@ def get_model() -> ort.InferenceSession:
 # Image Utilities
 # ---------------------------------------------------------------------------
 def read_image(file_bytes: bytes) -> np.ndarray:
-    arr = np.frombuffer(file_bytes, dtype=np.uint8)
-    img = cv2.imdecode(arr, cv2.IMREAD_COLOR)
-    if img is None:
+    try:
+        image = Image.open(io.BytesIO(file_bytes)).convert("RGB")
+    except Exception:
         raise HTTPException(status_code=400, detail="Could not decode image.")
-    return img
+    return np.array(image)
 
 
 def validate_upload(file: UploadFile):
@@ -208,12 +208,68 @@ async def read_upload(file: UploadFile) -> bytes:
     return data
 
 
-def save_annotated(img_bgr: np.ndarray, prefix: str = "") -> str:
+def save_annotated(img_rgb: np.ndarray, prefix: str = "") -> str:
     """Save annotated image to static/annotated/ and return relative URL."""
     name = f"{prefix}_{uuid.uuid4().hex[:8]}.jpg"
     path = ANNOTATED_DIR / name
-    cv2.imwrite(str(path), img_bgr)
+    Image.fromarray(img_rgb).save(path, format="JPEG", quality=90)
     return f"/static/annotated/{name}"
+
+
+def non_max_suppression(
+    coordinates: list[list[float]],
+    confidences: list[float],
+    iou_threshold: float,
+) -> list[int]:
+    if not coordinates:
+        return []
+
+    boxes = np.array(coordinates, dtype=np.float32)
+    scores = np.array(confidences, dtype=np.float32)
+    x1 = boxes[:, 0]
+    y1 = boxes[:, 1]
+    x2 = boxes[:, 2]
+    y2 = boxes[:, 3]
+    areas = np.maximum(0, x2 - x1) * np.maximum(0, y2 - y1)
+    order = scores.argsort()[::-1]
+    kept: list[int] = []
+
+    while order.size > 0:
+        current = int(order[0])
+        kept.append(current)
+        if order.size == 1:
+            break
+
+        remaining = order[1:]
+        xx1 = np.maximum(x1[current], x1[remaining])
+        yy1 = np.maximum(y1[current], y1[remaining])
+        xx2 = np.minimum(x2[current], x2[remaining])
+        yy2 = np.minimum(y2[current], y2[remaining])
+
+        widths = np.maximum(0, xx2 - xx1)
+        heights = np.maximum(0, yy2 - yy1)
+        intersection = widths * heights
+        union = areas[current] + areas[remaining] - intersection
+        iou = np.divide(intersection, union, out=np.zeros_like(intersection), where=union > 0)
+        order = remaining[iou <= iou_threshold]
+
+    return kept
+
+
+def draw_annotations(img_rgb: np.ndarray, detections: list[dict]) -> np.ndarray:
+    annotated = Image.fromarray(img_rgb.copy())
+    draw = ImageDraw.Draw(annotated)
+
+    for detection in detections:
+        x1, y1, x2, y2 = detection["bbox_xyxy"]
+        confidence = detection["confidence"]
+        point1 = (round(x1), round(y1))
+        point2 = (round(x2), round(y2))
+        label_pos = (point1[0], max(point1[1] - 18, 2))
+        draw.rectangle([point1, point2], outline=(16, 185, 129), width=3)
+        draw.text(label_pos, f"pothole {confidence:.2f}", fill=(16, 185, 129))
+
+    return np.array(annotated)
 
 
 def run_detection(img: np.ndarray) -> tuple[list[dict], np.ndarray, float]:
@@ -223,14 +279,14 @@ def run_detection(img: np.ndarray) -> tuple[list[dict], np.ndarray, float]:
     input_size = 640
     scale = min(input_size / img_w, input_size / img_h)
     resized_w, resized_h = round(img_w * scale), round(img_h * scale)
-    resized = cv2.resize(img, (resized_w, resized_h), interpolation=cv2.INTER_LINEAR)
+    resized = np.array(
+        Image.fromarray(img).resize((resized_w, resized_h), Image.Resampling.BILINEAR)
+    )
     pad_w, pad_h = input_size - resized_w, input_size - resized_h
     left, top = round(pad_w / 2 - 0.1), round(pad_h / 2 - 0.1)
-    right, bottom = pad_w - left, pad_h - top
-    padded = cv2.copyMakeBorder(
-        resized, top, bottom, left, right, cv2.BORDER_CONSTANT, value=(114, 114, 114)
-    )
-    input_tensor = padded[:, :, ::-1].transpose(2, 0, 1)[None].astype(np.float32) / 255.0
+    padded = np.full((input_size, input_size, 3), 114, dtype=np.uint8)
+    padded[top:top + resized_h, left:left + resized_w] = resized
+    input_tensor = padded.transpose(2, 0, 1)[None].astype(np.float32) / 255.0
     t0 = time.time()
     output = model.run(None, {model.get_inputs()[0].name: input_tensor})[0]
     latency_ms = round((time.time() - t0) * 1000, 1)
@@ -238,7 +294,6 @@ def run_detection(img: np.ndarray) -> tuple[list[dict], np.ndarray, float]:
     predictions = output[0].T
     scores = predictions[:, 4]
     candidate_indices = np.flatnonzero(scores >= CONF_THRESHOLD)
-    boxes = []
     confidences = []
     coordinates = []
     for index in candidate_indices:
@@ -250,22 +305,15 @@ def run_detection(img: np.ndarray) -> tuple[list[dict], np.ndarray, float]:
         x1, x2 = np.clip([x1, x2], 0, img_w)
         y1, y2 = np.clip([y1, y2], 0, img_h)
         coordinates.append([float(x1), float(y1), float(x2), float(y2)])
-        boxes.append([float(x1), float(y1), float(x2 - x1), float(y2 - y1)])
         confidences.append(float(scores[index]))
 
-    kept = cv2.dnn.NMSBoxes(boxes, confidences, CONF_THRESHOLD, IOU_THRESHOLD)
     raw = []
-    annotated = img.copy()
-    for kept_index in np.asarray(kept).reshape(-1):
+    for kept_index in non_max_suppression(coordinates, confidences, IOU_THRESHOLD):
         x1, y1, x2, y2 = [round(value, 2) for value in coordinates[int(kept_index)]]
         confidence = round(confidences[int(kept_index)], 4)
         raw.append({"class": "pothole", "confidence": confidence, "bbox_xyxy": [x1, y1, x2, y2]})
-        point1, point2 = (round(x1), round(y1)), (round(x2), round(y2))
-        cv2.rectangle(annotated, point1, point2, (16, 185, 129), 2)
-        cv2.putText(
-            annotated, f"pothole {confidence:.2f}", (point1[0], max(point1[1] - 8, 16)),
-            cv2.FONT_HERSHEY_SIMPLEX, 0.55, (16, 185, 129), 2,
-        )
+
+    annotated = draw_annotations(img, raw)
     return raw, annotated, latency_ms
 
 
@@ -550,11 +598,11 @@ async def predict_annotated(file: UploadFile = File(...)):
 
     _, annotated, _ = run_detection(img)
 
-    ok, buf = cv2.imencode(".jpg", annotated)
-    if not ok:
-        raise HTTPException(status_code=500, detail="Failed to encode output image.")
+    buf = io.BytesIO()
+    Image.fromarray(annotated).save(buf, format="JPEG", quality=90)
+    buf.seek(0)
 
-    return StreamingResponse(io.BytesIO(buf.tobytes()), media_type="image/jpeg")
+    return StreamingResponse(buf, media_type="image/jpeg")
 
 
 # ---------------------------------------------------------------------------

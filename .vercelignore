@@ -1,0 +1,9 @@
+dataset/
+samples/
+training_results/
+app/static/annotated/
+models/*.pt
+pothole_detection.ipynb
+roadsentinel.db
+structure.txt
+train.py

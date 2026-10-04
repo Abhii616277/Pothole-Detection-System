@@ -11,4 +11,4 @@ python-jose[cryptography]>=3.3,<4
 google-auth>=2.30,<3
 onnxruntime>=1.19,<2
 numpy<2
-opencv-python-headless>=4.10,<5
+Pillow>=10,<13
